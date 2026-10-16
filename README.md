@@ -175,3 +175,5 @@ Store details on the contact and legal pages (company name, address, support ema
 - [docs/api.md](docs/api.md): endpoints, authentication flow, error format, design JSON schema
 - [docs/roadmap.md](docs/roadmap.md): phase status and next steps
 - [docs/production-readiness.md](docs/production-readiness.md): acceptance criteria, quality gates, security, performance and remaining work
+
+<img width="1055" height="899" alt="image" src="https://github.com/user-attachments/assets/8eb5cbc3-ab36-4a11-ba17-44c04250c46b" />
