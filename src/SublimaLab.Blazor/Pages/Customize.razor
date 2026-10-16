@@ -1,0 +1,112 @@
+@page "/customize/{Slug}"
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject AuthService Auth
+@inject CartState CartState
+@inject NavigationManager Navigation
+@inject ToastService Toasts
+
+<PageTitle>Design studio — SublimaLab</PageTitle>
+
+@* The interactive studio is a React app (SublimaLab.Customizer), loaded on demand and mounted here. *@
+<div class="container">
+    <nav class="breadcrumbs" aria-label="Breadcrumb" style="padding-top:var(--space-4)">
+        <ol>
+            <li><a href="">Home</a></li>
+            <li><a href="products/@Slug">Product</a></li>
+            <li aria-current="page">Design studio</li>
+        </ol>
+    </nav>
+
+    @if (_loadError)
+    {
+        <div class="empty-state" role="alert" style="margin-top:var(--space-5)">
+            <Icon Name="alert" Class="empty-state__icon" />
+            <h1>The design studio couldn't load</h1>
+            <p>Please check your connection and refresh the page. If the problem continues, you can still order the product without a design.</p>
+            <a class="btn btn--primary" href="products/@Slug">Back to product</a>
+        </div>
+    }
+
+    <h1 class="visually-hidden">Design studio</h1>
+    @* Left empty on purpose: React owns everything inside this element. *@
+    <div id="@ElementId" class="studio-host" aria-live="polite"></div>
+</div>
+
+@code {
+    private const string ElementId = "sublimalab-studio";
+
+    [Parameter] public string Slug { get; set; } = string.Empty;
+    [SupplyParameterFromQuery] public Guid? Variant { get; set; }
+    [SupplyParameterFromQuery(Name = "item")] public Guid? CartItem { get; set; }
+    [SupplyParameterFromQuery] public Guid? Design { get; set; }
+
+    private IJSObjectReference? _host;
+    private DotNetObjectReference<Customize>? _self;
+    private bool _loadError;
+    private string? _mountedKey;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Remount when navigating between products or designs while staying on this page.
+        var key = $"{Slug}|{Variant}|{CartItem}|{Design}";
+        if (key == _mountedKey)
+        {
+            return;
+        }
+
+        _mountedKey = key;
+        try
+        {
+            var auth = await Auth.GetAuthenticationStateAsync();
+            _self ??= DotNetObjectReference.Create(this);
+            _host ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/customizer-host.js");
+            await _host.InvokeVoidAsync("mount", ElementId, new
+            {
+                productSlug = Slug,
+                variantId = Variant,
+                cartItemId = CartItem,
+                designId = Design,
+                isAuthenticated = auth.User.Identity?.IsAuthenticated == true,
+            }, _self);
+        }
+        catch (JSException)
+        {
+            _loadError = true;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnCartUpdated(string message)
+    {
+        await CartState.RefreshAsync();
+        Toasts.Success(message, "View cart", "cart");
+        Navigation.NavigateTo("cart");
+    }
+
+    [JSInvokable]
+    public void OnRequireLogin(string returnUrl)
+    {
+        Toasts.Info("Sign in to save designs to your account.");
+        Navigation.NavigateTo($"account/login?returnUrl={Uri.EscapeDataString(returnUrl)}");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_host is not null)
+        {
+            try
+            {
+                await _host.InvokeVoidAsync("unmount", ElementId);
+                await _host.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The page is being torn down.
+            }
+        }
+
+        _self?.Dispose();
+    }
+}

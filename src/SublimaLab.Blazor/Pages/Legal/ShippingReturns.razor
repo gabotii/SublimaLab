@@ -1,0 +1,67 @@
+@page "/shipping-returns"
+@inject CatalogCache Catalog
+
+<LegalPage Title="Shipping & returns">
+    <h2>Production time</h2>
+    <p>Every item is printed to order. Production usually takes 1–2 business days, as shown on each product page, and starts once your payment is confirmed. We email you when your order ships, with a tracking number.</p>
+
+    <h2>Shipping options</h2>
+    @if (_methods is null)
+    {
+        <div class="skeleton" style="height:120px" aria-busy="true"></div>
+    }
+    else if (_methods.Count == 0)
+    {
+        <p>Shipping options are shown at checkout.</p>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th scope="col">Method</th><th scope="col">Cost</th><th scope="col">Delivery time</th></tr></thead>
+                <tbody>
+                    @foreach (var method in _methods)
+                    {
+                        <tr>
+                            <td><strong>@method.Name</strong><br /><span class="text-muted text-sm">@method.Description</span></td>
+                            <td>
+                                @Format.Money(method.Cost, method.Currency)
+                                @if (method.FreeShippingThreshold is { } threshold)
+                                {
+                                    <br /><span class="text-muted text-sm">Free over @Format.Money(threshold, method.Currency)</span>
+                                }
+                            </td>
+                            <td>@method.MinDeliveryDays–@method.MaxDeliveryDays business days after production</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    <p>Delivery times are estimates from the carrier. We currently ship to [list of countries / regions].</p>
+
+    <h2>Something wrong with your order?</h2>
+    <p>If an item arrives damaged, misprinted or different from what you ordered, email <a href="mailto:@StoreInfo.SupportEmail">@StoreInfo.SupportEmail</a> within @StoreInfo.DefectReportDays days of delivery. Include your order number and a photo of the problem. We will reprint the item or refund you, at no cost to you.</p>
+
+    <h2>Returns</h2>
+    <p>Because personalized items are made just for you, we can't accept returns or exchanges for a change of mind, a wrong size you chose, or a design you uploaded. Check the size guide and the preview carefully before ordering. Your statutory rights are not affected.</p>
+
+    <h2>Cancellations</h2>
+    <p>You can cancel an order yourself under <a href="account">My account</a> while it is pending payment. Once production starts, the order can't be cancelled.</p>
+</LegalPage>
+
+@code {
+    private IReadOnlyList<ShippingMethod>? _methods;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _methods = await Catalog.GetShippingMethodsAsync();
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _methods = [];
+        }
+    }
+}

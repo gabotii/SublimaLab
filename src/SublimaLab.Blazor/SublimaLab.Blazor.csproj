@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+  <!--
+    Storefront: the interactive WebAssembly part of a Blazor Web App. SublimaLab.Api hosts it on the
+    same origin as the API and prerenders public pages; its assets flow to the server like a library's.
+  -->
+  <PropertyGroup>
+    <RootNamespace>SublimaLab.Blazor</RootNamespace>
+    <StaticWebAssetProjectMode>Default</StaticWebAssetProjectMode>
+    <NoDefaultLaunchSettingsFile>true</NoDefaultLaunchSettingsFile>
+    <!-- Formatting uses the invariant culture (English month names, $ prices), so ICU data is not downloaded. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <BlazorWebAssemblyLoadAllGlobalizationData>false</BlazorWebAssemblyLoadAllGlobalizationData>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SublimaLab.Blazor.Tests" />
+  </ItemGroup>
+
+  <!--
+    The React design studio (src/SublimaLab.Customizer) is built into wwwroot/customizer.
+    Incremental: it only rebuilds when the studio sources change. Requires Node.js 22+.
+    Pass -p:SkipCustomizerBuild=true when the bundle is produced elsewhere (e.g. the Docker node stage).
+  -->
+  <PropertyGroup>
+    <CustomizerDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../SublimaLab.Customizer/'))</CustomizerDir>
+    <CustomizerEntry>$(MSBuildProjectDirectory)/wwwroot/customizer/customizer.js</CustomizerEntry>
+  </PropertyGroup>
+  <ItemGroup>
+    <CustomizerSources Include="$(CustomizerDir)src/**/*;$(CustomizerDir)package.json;$(CustomizerDir)vite.config.ts;$(CustomizerDir)tsconfig.json" />
+  </ItemGroup>
+  <Target Name="BuildCustomizer" BeforeTargets="BeforeBuild" Condition="'$(SkipCustomizerBuild)' != 'true'" Inputs="@(CustomizerSources)" Outputs="$(CustomizerEntry)">
+    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(CustomizerDir)" Condition="!Exists('$(CustomizerDir)node_modules')" />
+    <Exec Command="npm run build" WorkingDirectory="$(CustomizerDir)" />
+  </Target>
+</Project>

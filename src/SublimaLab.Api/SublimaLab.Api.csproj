@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>SublimaLab.Api</RootNamespace>
+    <UserSecretsId>sublimalab-api-6f1c2a4e</UserSecretsId>
+    <!-- Start through the signed `dotnet` host instead of a generated SublimaLab.Api.exe launcher.
+         Unsigned launchers can be blocked by Windows Smart App Control; behaviour is otherwise identical. -->
+    <UseAppHost>false</UseAppHost>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SublimaLab.Infrastructure\SublimaLab.Infrastructure.csproj" />
+    <ProjectReference Include="..\SublimaLab.Migrations.Sqlite\SublimaLab.Migrations.Sqlite.csproj" />
+    <ProjectReference Include="..\SublimaLab.Migrations.Postgres\SublimaLab.Migrations.Postgres.csproj" />
+    <ProjectReference Include="..\SublimaLab.Blazor\SublimaLab.Blazor.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SublimaLab.IntegrationTests" />
+  </ItemGroup>
+</Project>

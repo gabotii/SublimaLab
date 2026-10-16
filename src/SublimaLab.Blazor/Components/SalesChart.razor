@@ -1,0 +1,139 @@
+@* Daily revenue columns (single series: the title names it, so no legend). Hover/focus shows a tooltip;
+   the same data is available as a table for screen readers and precise reading. *@
+<figure class="chart" aria-labelledby="@_titleId">
+    <figcaption class="chart__header">
+        <h2 id="@_titleId" class="chart__title">@Title</h2>
+        <button type="button" class="btn btn--ghost btn--sm" aria-expanded="@_showTable.ToString().ToLowerInvariant()" @onclick="() => _showTable = !_showTable">
+            @(_showTable ? "Show chart" : "View as table")
+        </button>
+    </figcaption>
+
+    @if (_showTable)
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th scope="col">Date</th><th scope="col" class="num">Orders</th><th scope="col" class="num">Revenue</th></tr></thead>
+                <tbody>
+                    @foreach (var day in Data)
+                    {
+                        <tr><td>@day.Date.ToString("MMM d")</td><td class="num">@day.Orders</td><td class="num">@Format.Money(day.Revenue, Currency)</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="chart__plot">
+            <svg viewBox="0 0 @Width @Height" role="img" aria-label="@AriaSummary">
+                @* Recessive hairline gridlines and clean, rounded ticks. *@
+                @foreach (var tick in Ticks)
+                {
+                    var y = Y(tick);
+                    <line x1="@PadLeft" x2="@(Width - PadRight)" y1="@F(y)" y2="@F(y)" class="chart__grid" />
+                    @SvgText(PadLeft - 8, y + 4, "end", CompactMoney(tick))
+                }
+
+                @for (var i = 0; i < Data.Count; i++)
+                {
+                    var index = i;
+                    var day = Data[i];
+                    var x = BandX(i);
+                    var barX = x + (BandWidth - BarWidth) / 2;
+                    var top = Y((double)day.Revenue);
+                    var height = Baseline - top;
+                    @if (height > 0.5)
+                    {
+                        <path d="@BarPath(barX, top, BarWidth, height)" class="chart__bar @(index == _hover ? "chart__bar--active" : null)" />
+                    }
+                    @* Hit target: the whole band, taller and wider than the mark. *@
+                    <rect x="@F(x)" y="@PadTop" width="@F(BandWidth)" height="@F(Baseline - PadTop)" class="chart__hit" tabindex="0"
+                          aria-label="@($"{day.Date:MMM d}: {Format.Money(day.Revenue, Currency)} from {day.Orders} orders")"
+                          @onmouseenter="() => _hover = index" @onfocus="() => _hover = index" @onmouseleave="() => _hover = null" @onblur="() => _hover = null" />
+                }
+
+                <line x1="@PadLeft" x2="@(Width - PadRight)" y1="@Baseline" y2="@Baseline" class="chart__axis" />
+                @foreach (var i in LabelIndexes)
+                {
+                    @SvgText(BandX(i) + BandWidth / 2, Height - 6, "middle", Data[i].Date.ToString("MMM d"))
+                }
+            </svg>
+
+            @if (_hover is int h && h < Data.Count)
+            {
+                var day = Data[h];
+                var leftPercent = (BandX(h) + BandWidth / 2) / Width * 100;
+                <div class="chart__tooltip" style="left:@(F(Math.Clamp(leftPercent, 12, 88)))%" role="status">
+                    <strong>@day.Date.ToString("ddd, MMM d")</strong>
+                    <span>@Format.Money(day.Revenue, Currency)</span>
+                    <span class="text-muted">@day.Orders @(day.Orders == 1 ? "order" : "orders")</span>
+                </div>
+            }
+        </div>
+    }
+</figure>
+
+@code {
+    private const double Width = 720;
+    private const double Height = 240;
+    private const double PadLeft = 52;
+    private const double PadRight = 8;
+    private const double PadTop = 12;
+    private const double PadBottom = 28;
+
+    [Parameter, EditorRequired] public IReadOnlyList<DailySales> Data { get; set; } = [];
+    [Parameter] public string Title { get; set; } = "Revenue, last 30 days";
+    [Parameter] public string Currency { get; set; } = "USD";
+
+    private readonly string _titleId = "chart-" + Guid.NewGuid().ToString("N")[..8];
+    private int? _hover;
+    private bool _showTable;
+
+    private double Baseline => Height - PadBottom;
+    private double BandWidth => (Width - PadLeft - PadRight) / Math.Max(Data.Count, 1);
+
+    // Columns are capped at 24px and keep at least a 2px surface gap between neighbours.
+    private double BarWidth => Math.Min(24, Math.Max(BandWidth - 2, 1));
+
+    private double Max => NiceMax(Data.Count == 0 ? 0 : (double)Data.Max(d => d.Revenue));
+
+    private IEnumerable<double> Ticks => Enumerable.Range(0, 5).Select(i => Max / 4 * i);
+
+    private IEnumerable<int> LabelIndexes =>
+        Data.Count == 0 ? [] : new[] { 0, Data.Count / 2, Data.Count - 1 }.Distinct();
+
+    private string AriaSummary =>
+        Data.Count == 0 ? "No sales data" : $"Daily revenue from {Data[0].Date:MMM d} to {Data[^1].Date:MMM d}. Total {Format.Money(Data.Sum(d => d.Revenue), Currency)}; best day {Data.MaxBy(d => d.Revenue)!.Date:MMM d}.";
+
+    private double BandX(int i) => PadLeft + i * BandWidth;
+
+    private double Y(double value) => Baseline - (Max <= 0 ? 0 : value / Max * (Baseline - PadTop));
+
+    /// <summary>4px rounded data-end, square at the baseline.</summary>
+    private static string BarPath(double x, double y, double w, double h)
+    {
+        var r = Math.Min(4, Math.Min(w / 2, h));
+        return $"M{F(x)},{F(y + h)}V{F(y + r)}Q{F(x)},{F(y)} {F(x + r)},{F(y)}H{F(x + w - r)}Q{F(x + w)},{F(y)} {F(x + w)},{F(y + r)}V{F(y + h)}Z";
+    }
+
+    private static double NiceMax(double value)
+    {
+        if (value <= 0) return 100;
+        var magnitude = Math.Pow(10, Math.Floor(Math.Log10(value)));
+        foreach (var step in new[] { 1, 2, 2.5, 5, 10 })
+        {
+            if (step * magnitude >= value) return step * magnitude;
+        }
+
+        return 10 * magnitude;
+    }
+
+    // Razor reserves <text>, so SVG labels are emitted as encoded markup.
+    private static MarkupString SvgText(double x, double y, string anchor, string content) =>
+        new($"<text x=\"{F(x)}\" y=\"{F(y)}\" class=\"chart__tick\" text-anchor=\"{anchor}\">{System.Net.WebUtility.HtmlEncode(content)}</text>");
+
+    private static string F(double value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private string CompactMoney(double value) =>
+        value >= 1000 ? Format.Money(Math.Round((decimal)value / 1000, 1), Currency).Replace(".0", string.Empty) + "K" : Format.Money((decimal)value, Currency).Replace(".00", string.Empty);
+}

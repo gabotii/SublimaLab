@@ -1,0 +1,128 @@
+@inject ApiClient Api
+@inject AuthService Auth
+@inject ToastService Toasts
+
+<div class="form-grid form-grid--2" style="align-items:start">
+    <section class="card panel" aria-labelledby="profile-title">
+        <div class="panel__header"><h2 id="profile-title">Profile</h2></div>
+        <EditForm Model="_profile" OnValidSubmit="SaveProfileAsync" FormName="profile" class="form-grid">
+            <DataAnnotationsValidator />
+            <ServerErrors Error="_profileError" />
+            <div class="field">
+                <label class="field__label" for="p-first">First name</label>
+                <InputText id="p-first" class="input" autocomplete="given-name" @bind-Value="_profile.FirstName" />
+                <ValidationMessage For="() => _profile.FirstName" />
+            </div>
+            <div class="field">
+                <label class="field__label" for="p-last">Last name</label>
+                <InputText id="p-last" class="input" autocomplete="family-name" @bind-Value="_profile.LastName" />
+                <ValidationMessage For="() => _profile.LastName" />
+            </div>
+            <div class="field">
+                <label class="field__label" for="p-phone">Phone <span class="text-muted">(optional)</span></label>
+                <InputText id="p-phone" class="input" type="tel" autocomplete="tel" @bind-Value="_profile.PhoneNumber" />
+                <ValidationMessage For="() => _profile.PhoneNumber" />
+            </div>
+            <div><button type="submit" class="btn btn--primary" disabled="@_savingProfile">Save profile</button></div>
+        </EditForm>
+    </section>
+
+    <section class="card panel" aria-labelledby="password-title">
+        <div class="panel__header"><h2 id="password-title">Change password</h2></div>
+        <EditForm Model="_password" OnValidSubmit="ChangePasswordAsync" FormName="password" class="form-grid">
+            <DataAnnotationsValidator />
+            <ServerErrors Error="_passwordError" HandledFields="PasswordFields" />
+            <div class="field">
+                <label class="field__label" for="pw-current">Current password</label>
+                <InputText id="pw-current" class="input" type="password" autocomplete="current-password" @bind-Value="_password.Current" />
+                <ValidationMessage For="() => _password.Current" />
+                <FieldError Error="_passwordError" Field="currentPassword" />
+            </div>
+            <div class="field">
+                <label class="field__label" for="pw-new">New password</label>
+                <InputText id="pw-new" class="input" type="password" autocomplete="new-password" @bind-Value="_password.New" />
+                <span class="field__hint">At least 10 characters, with an uppercase letter, a lowercase letter and a number.</span>
+                <ValidationMessage For="() => _password.New" />
+                <FieldError Error="_passwordError" Field="newPassword" />
+            </div>
+            <div><button type="submit" class="btn btn--primary" disabled="@_savingPassword">Update password</button></div>
+        </EditForm>
+    </section>
+</div>
+
+@code {
+    private static readonly string[] PasswordFields = ["currentPassword", "newPassword"];
+
+    private readonly ProfileModel _profile = new();
+    private PasswordModel _password = new();
+    private ApiException? _profileError;
+    private ApiException? _passwordError;
+    private bool _savingProfile;
+    private bool _savingPassword;
+
+    protected override void OnInitialized()
+    {
+        var user = Auth.CurrentUser;
+        _profile.FirstName = user?.FirstName ?? string.Empty;
+        _profile.LastName = user?.LastName ?? string.Empty;
+        _profile.PhoneNumber = user?.PhoneNumber;
+    }
+
+    private async Task SaveProfileAsync()
+    {
+        _savingProfile = true;
+        _profileError = null;
+        try
+        {
+            var user = await Api.PutAsync<User>("api/account/profile",
+                new UpdateProfileRequest(_profile.FirstName.Trim(), _profile.LastName.Trim(), string.IsNullOrWhiteSpace(_profile.PhoneNumber) ? null : _profile.PhoneNumber.Trim()));
+            Auth.SetUser(user);
+            Toasts.Success("Profile updated.");
+        }
+        catch (ApiException e)
+        {
+            _profileError = e;
+        }
+        finally
+        {
+            _savingProfile = false;
+        }
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        _savingPassword = true;
+        _passwordError = null;
+        try
+        {
+            await Api.PostAsync("api/account/change-password", new ChangePasswordRequest(_password.Current, _password.New));
+            _password = new();
+            Toasts.Success("Password updated.");
+        }
+        catch (ApiException e)
+        {
+            _passwordError = e;
+        }
+        finally
+        {
+            _savingPassword = false;
+        }
+    }
+
+    private sealed class ProfileModel
+    {
+        [Required(ErrorMessage = "Enter your first name."), StringLength(60)] public string FirstName { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Enter your last name."), StringLength(60)] public string LastName { get; set; } = string.Empty;
+        [RegularExpression(@"^\+?[0-9 ()\-.]{6,30}$", ErrorMessage = "Enter a valid phone number.")] public string? PhoneNumber { get; set; }
+    }
+
+    private sealed class PasswordModel
+    {
+        [Required(ErrorMessage = "Enter your current password.")] public string Current { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Choose a new password.")]
+        [MinLength(10, ErrorMessage = "Use at least 10 characters.")]
+        [RegularExpression("^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).+$", ErrorMessage = "Include an uppercase letter, a lowercase letter and a number.")]
+        public string New { get; set; } = string.Empty;
+    }
+}

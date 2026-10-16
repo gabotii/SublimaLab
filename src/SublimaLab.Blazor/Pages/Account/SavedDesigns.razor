@@ -1,0 +1,102 @@
+@inject ApiClient Api
+@inject ToastService Toasts
+
+<section aria-labelledby="designs-title">
+    <div class="section__header">
+        <h2 id="designs-title" style="margin:0">Saved designs</h2>
+        <a class="btn btn--secondary btn--sm" href="shop?customizable=true"><Icon Name="sparkles" /> New design</a>
+    </div>
+
+    @if (_designs is null)
+    {
+        <div class="grid" aria-busy="true">
+            @for (var i = 0; i < 3; i++)
+            {
+                <div class="skeleton skeleton--card" aria-hidden="true"></div>
+            }
+        </div>
+    }
+    else if (_designs.Count == 0)
+    {
+        <div class="empty-state">
+            <Icon Name="palette" Class="empty-state__icon" />
+            <h3>No saved designs yet</h3>
+            <p>Use <strong>Save design</strong> in the design studio to keep your creations and reorder them anytime.</p>
+            <a class="btn btn--primary" href="shop?customizable=true">Start designing</a>
+        </div>
+    }
+    else
+    {
+        <div class="grid">
+            @foreach (var design in _designs)
+            {
+                <article class="card product-card" @key="design.Id">
+                    <div class="product-card__media">
+                        @if (design.PreviewUrl is not null)
+                        {
+                            <img src="@design.PreviewUrl" alt="Preview of @design.Name" loading="lazy" style="width:86%;height:auto" />
+                        }
+                        else
+                        {
+                            <ProductArt Kind="@ArtKind.FromProductSlug(design.ProductSlug)" />
+                        }
+                    </div>
+                    <div class="product-card__body">
+                        <span class="product-card__category">@design.ProductName</span>
+                        <h3 class="product-card__title">@design.Name</h3>
+                        <p class="text-muted" style="font-size:var(--text-xs);margin:0">Updated @Format.Date(design.UpdatedAt)</p>
+                        <div class="product-card__actions">
+                            <a class="btn btn--primary btn--sm" href="@($"customize/{design.ProductSlug}?design={design.Id}")">Open</a>
+                            <button type="button" class="btn btn--secondary btn--sm" @onclick="() => _pendingDelete = design">Delete</button>
+                        </div>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+</section>
+
+<ConfirmDialog Open="@(_pendingDelete is not null)" Title="Delete design?" Danger="true" ConfirmText="Delete"
+               Message="@($"Delete \"{_pendingDelete?.Name}\"? Orders you already placed with it are not affected.")"
+               OnConfirm="DeleteAsync" OnCancel="() => _pendingDelete = null" />
+
+@code {
+    private IReadOnlyList<SavedDesign>? _designs;
+    private SavedDesign? _pendingDelete;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _designs = await Api.GetAsync<IReadOnlyList<SavedDesign>>("api/designs");
+        }
+        catch (ApiException e)
+        {
+            _designs = [];
+            Toasts.Error(e.Message);
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        var design = _pendingDelete;
+        _pendingDelete = null;
+        if (design is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Api.DeleteAsync($"api/designs/{design.Id}");
+            Toasts.Success("Design deleted.");
+            await LoadAsync();
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+    }
+}

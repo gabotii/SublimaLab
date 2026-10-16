@@ -1,0 +1,118 @@
+@implements IDisposable
+@inject CartState CartState
+@inject NavigationManager Navigation
+
+<header class="site-header">
+    <div class="container site-header__inner">
+        <Logo />
+
+        <nav class="nav" aria-label="Main">
+            <ul class="nav__links">
+                @foreach (var link in Links)
+                {
+                    <li><NavLink class="nav__link" href="@link.Href" Match="@link.Match">@link.Text</NavLink></li>
+                }
+            </ul>
+        </nav>
+
+        <div class="header-actions">
+            <a class="btn btn--primary btn--sm" href="shop?customizable=true">
+                <Icon Name="sparkles" /> Create your design
+            </a>
+
+            <AuthorizeView Roles="Admin">
+                <a class="btn btn--secondary btn--sm admin-link" href="admin"><Icon Name="layers" /> Admin</a>
+            </AuthorizeView>
+
+            <AuthorizeView>
+                <Authorized>
+                    <a class="icon-btn" href="account" title="My account" aria-label="My account (@context.User.Identity?.Name)">
+                        <Icon Name="user" />
+                    </a>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="icon-btn" href="account/login" title="Sign in" aria-label="Sign in">
+                        <Icon Name="user" />
+                    </a>
+                </NotAuthorized>
+            </AuthorizeView>
+
+            <a class="icon-btn" href="cart" aria-label="@CartLabel" title="Cart">
+                <Icon Name="cart" />
+                @if (CartState.Cart.ItemCount > 0)
+                {
+                    <span class="cart-badge" aria-hidden="true">@CartState.Cart.ItemCount</span>
+                }
+            </a>
+
+            <button type="button" class="icon-btn nav-toggle" aria-expanded="@_menuOpen.ToString().ToLowerInvariant()"
+                    aria-controls="mobile-nav" aria-label="@(_menuOpen ? "Close menu" : "Open menu")" @onclick="ToggleMenu">
+                <Icon Name="@(_menuOpen ? "close" : "menu")" />
+            </button>
+        </div>
+    </div>
+
+    @if (_menuOpen)
+    {
+        <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile">
+            <ul>
+                @foreach (var link in Links)
+                {
+                    <li><NavLink href="@link.Href" Match="@link.Match">@link.Text</NavLink></li>
+                }
+                <AuthorizeView Roles="Admin"><li><NavLink href="admin">Admin dashboard</NavLink></li></AuthorizeView>
+                <AuthorizeView>
+                    <Authorized><li><NavLink href="account">My account</NavLink></li></Authorized>
+                    <NotAuthorized><li><NavLink href="account/login">Sign in</NavLink></li></NotAuthorized>
+                </AuthorizeView>
+            </ul>
+            <a class="btn btn--primary btn--block" href="shop?customizable=true"><Icon Name="sparkles" /> Create your design</a>
+        </nav>
+    }
+</header>
+
+@code {
+    private sealed record NavItem(string Text, string Href, NavLinkMatch Match);
+
+    private static readonly NavItem[] Links =
+    [
+        new("Shop all", "shop", NavLinkMatch.All),
+        new("T-Shirts", "shop/t-shirts", NavLinkMatch.Prefix),
+        new("Mugs", "shop/mugs", NavLinkMatch.Prefix),
+        new("Keychains", "shop/keychains", NavLinkMatch.Prefix),
+    ];
+
+    private bool _menuOpen;
+
+    private string CartLabel => CartState.Cart.ItemCount switch
+    {
+        0 => "Cart, empty",
+        1 => "Cart, 1 item",
+        var n => $"Cart, {n} items",
+    };
+
+    protected override void OnInitialized()
+    {
+        CartState.Changed += OnCartChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    private void ToggleMenu() => _menuOpen = !_menuOpen;
+
+    private void OnCartChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (_menuOpen)
+        {
+            _menuOpen = false;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        CartState.Changed -= OnCartChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

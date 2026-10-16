@@ -1,0 +1,63 @@
+@implements IDisposable
+@inject PersistentComponentState State
+@inject PrerenderCache Prerender
+
+<Router AppAssembly="@typeof(Routes).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated == true)
+                {
+                    <div class="container section">
+                        <div class="empty-state" role="alert">
+                            <Icon Name="lock" Class="empty-state__icon" />
+                            <h1>Access denied</h1>
+                            <p>Your account doesn't have permission to view this page.</p>
+                            <a class="btn btn--primary" href="">Go to the storefront</a>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <RedirectToLogin />
+                }
+            </NotAuthorized>
+            <Authorizing>
+                <div class="page-loading" role="status"><span class="spinner"></span><span class="visually-hidden">Loading…</span></div>
+            </Authorizing>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+</Router>
+
+@code {
+    private PersistingComponentStateSubscription _persisting;
+
+    protected override void OnInitialized()
+    {
+        // In the browser: pick up the API responses the server used to prerender this page.
+        if (TryTakeResponses(out var responses))
+        {
+            Prerender.Load(responses);
+        }
+
+        // On the server: embed them in the page when prerendering finishes.
+        if (Prerender.IsRecording)
+        {
+            _persisting = State.RegisterOnPersisting(PersistResponses, RenderMode.InteractiveWebAssembly);
+        }
+    }
+
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Dictionary<string, string> is always preserved.")]
+    private bool TryTakeResponses(out Dictionary<string, string> responses) =>
+        State.TryTakeFromJson(PrerenderCache.StateKey, out responses!) && responses is not null;
+
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Dictionary<string, string> is always preserved.")]
+    private Task PersistResponses()
+    {
+        State.PersistAsJson(PrerenderCache.StateKey, Prerender.Snapshot());
+        return Task.CompletedTask;
+    }
+
+    public void Dispose() => _persisting.Dispose();
+}

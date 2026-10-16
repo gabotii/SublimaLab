@@ -1,0 +1,273 @@
+@page "/admin/orders/{Id:guid}"
+@using System.Text.Json
+@inject ApiClient Api
+@inject ToastService Toasts
+
+<PageTitle>@(_detail is null ? "Order" : _detail.Order.OrderNumber) — SublimaLab admin</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_error</p></div>
+}
+else if (_detail is null)
+{
+    <div class="page-loading" role="status"><span class="spinner"></span></div>
+}
+else
+{
+    var order = _detail.Order;
+    <nav class="breadcrumbs" aria-label="Breadcrumb"><ol><li><a href="admin/orders">Orders</a></li><li aria-current="page">@order.OrderNumber</li></ol></nav>
+    <div class="row row--between" style="margin-bottom:var(--space-4)">
+        <div>
+            <h1 style="margin:0">Order @order.OrderNumber</h1>
+            <p class="text-muted" style="margin:0">Placed @Format.DateAndTime(order.PlacedAt) · <a href="admin/customers/@_detail.CustomerId">@order.Contact.FullName</a></p>
+        </div>
+        <span class="badge badge--@Format.StatusTone(order.Status)">@Format.Status(order.Status)</span>
+    </div>
+
+    <div class="layout-with-summary">
+        <div class="stack">
+            <section class="card panel" aria-labelledby="actions-title">
+                <div class="panel__header"><h2 id="actions-title">Fulfilment</h2></div>
+                @if (_detail.NextStatuses.Count == 0 && !_detail.CanShip)
+                {
+                    <p class="text-muted" style="margin:0">No further actions: this order is @Format.Status(order.Status).ToLowerInvariant().</p>
+                }
+                else
+                {
+                    <div class="field" style="margin-bottom:var(--space-3)">
+                        <label class="field__label" for="status-note">Note for the timeline <span class="text-muted">(optional)</span></label>
+                        <input id="status-note" class="input" maxlength="500" @bind="_note" placeholder="e.g. Printed on press 2" />
+                    </div>
+                    <div class="row">
+                        @foreach (var next in _detail.NextStatuses)
+                        {
+                            var status = next;
+                            <button type="button" class="btn @(status == OrderStatus.Cancelled ? "btn--danger" : "btn--primary")" disabled="@_busy"
+                                    @onclick="() => RequestStatus(status)">
+                                @(status == OrderStatus.Cancelled ? "Cancel order" : $"Mark as {Format.Status(status).ToLowerInvariant()}")
+                            </button>
+                        }
+                    </div>
+                }
+
+                @if (_detail.CanShip)
+                {
+                    <form class="form-grid form-grid--2" style="margin-top:var(--space-4)" @onsubmit="ShipAsync" @onsubmit:preventDefault>
+                        <div class="field">
+                            <label class="field__label" for="ship-carrier">Carrier</label>
+                            <input id="ship-carrier" class="input" required maxlength="60" @bind="_carrier" placeholder="UPS, USPS, DHL…" />
+                        </div>
+                        <div class="field">
+                            <label class="field__label" for="ship-tracking">Tracking number</label>
+                            <input id="ship-tracking" class="input" required maxlength="100" pattern="[A-Za-z0-9-]+" @bind="_tracking" />
+                        </div>
+                        <div class="span-2"><button type="submit" class="btn btn--primary" disabled="@_busy"><Icon Name="truck" /> Mark as shipped</button></div>
+                    </form>
+                }
+                <ServerErrors Error="_actionError" />
+            </section>
+
+            <section class="card panel" aria-labelledby="items-title">
+                <div class="panel__header">
+                    <h2 id="items-title">Items</h2>
+                    @if (_detail.HasCustomization)
+                    {
+                        <a class="btn btn--secondary btn--sm" href="api/admin/orders/@order.Id/artwork" download><Icon Name="upload" Class="inline-icon" /> Download production artwork</a>
+                    }
+                </div>
+                <ul class="cart-lines">
+                    @foreach (var item in order.Items)
+                    {
+                        <li class="cart-line" style="padding:0;align-items:start" @key="item.Id">
+                            <span class="cart-line__media" aria-hidden="true">
+                                @if (item.PreviewUrl is not null)
+                                {
+                                    <img src="@item.PreviewUrl" alt="" />
+                                }
+                                else
+                                {
+                                    <ProductArt Kind="@ArtKind.FromSku(item.Sku)" Color="@item.ColorHex" />
+                                }
+                            </span>
+                            <div>
+                                <h3 class="cart-line__title">@item.ProductName</h3>
+                                <p class="cart-line__meta"><span>@item.VariantLabel</span><span>SKU @item.Sku</span><span>Qty @item.Quantity</span></p>
+                                @if (item.Design is { } design)
+                                {
+                                    <ul class="design-elements" aria-label="Design elements">
+                                        @foreach (var line in DescribeDesign(design))
+                                        {
+                                            <li>@line</li>
+                                        }
+                                    </ul>
+                                    <div class="row" style="margin-top:var(--space-2)">
+                                        @foreach (var uploadId in UploadIds(design))
+                                        {
+                                            <a href="api/uploads/@uploadId/content" target="_blank" rel="noopener" title="Open original artwork">
+                                                <img src="api/uploads/@uploadId/content" alt="Customer artwork" style="width:56px;height:56px;object-fit:contain;border:1px solid var(--color-border);border-radius:8px;background:#fff" loading="lazy" />
+                                            </a>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                            <div class="cart-line__price">@Format.Money(item.LineTotal, order.Currency)<small>@item.Quantity × @Format.Money(item.UnitPrice + item.CustomizationPrice, order.Currency)</small></div>
+                        </li>
+                    }
+                </ul>
+            </section>
+
+            <section class="card panel" aria-labelledby="timeline-title">
+                <div class="panel__header"><h2 id="timeline-title">Timeline</h2></div>
+                <ol class="timeline">
+                    @foreach (var entry in order.Timeline)
+                    {
+                        <li class="@(entry.Status == OrderStatus.Cancelled ? "cancelled" : "done")">
+                            <span class="timeline__dot"><Icon Name="@(entry.Status == OrderStatus.Cancelled ? "close" : "check")" /></span>
+                            <div>
+                                <div class="timeline__title">@Format.Status(entry.Status)</div>
+                                <div class="timeline__meta">@Format.DateAndTime(entry.ChangedAt)@(entry.Note is null ? null : $" · {entry.Note}")</div>
+                            </div>
+                        </li>
+                    }
+                </ol>
+            </section>
+        </div>
+
+        <aside class="stack">
+            <div class="card summary">
+                <h2>Totals</h2>
+                <div class="summary__rows">
+                    <div class="summary__row"><span>Subtotal</span><span>@Format.Money(order.Subtotal, order.Currency)</span></div>
+                    @if (order.Discount > 0)
+                    {
+                        <div class="summary__row summary__row--discount"><span>Discount (@order.DiscountCode)</span><span>−@Format.Money(order.Discount, order.Currency)</span></div>
+                    }
+                    <div class="summary__row"><span>@order.ShippingMethodName</span><span>@Format.Money(order.Shipping, order.Currency)</span></div>
+                    <div class="summary__row"><span>Tax</span><span>@Format.Money(order.Tax, order.Currency)</span></div>
+                </div>
+                <div class="summary__total"><span>Total</span><span>@Format.Money(order.Total, order.Currency)</span></div>
+                <p class="summary__note">Payments: @string.Join(", ", order.Payments.Select(p => $"{p.Status} ({p.Provider})"))</p>
+            </div>
+            <div class="card panel review-block">
+                <h3>Ship to</h3>
+                <p>@order.Contact.FullName<br />@order.ShippingAddress.Line1@(order.ShippingAddress.Line2 is null ? null : $", {order.ShippingAddress.Line2}")<br />@order.ShippingAddress.City, @order.ShippingAddress.Region @order.ShippingAddress.PostalCode<br />@order.ShippingAddress.Country</p>
+                <h3>Contact</h3>
+                <p style="margin:0"><a href="mailto:@order.Contact.Email">@order.Contact.Email</a><br />@order.Contact.Phone</p>
+                @if (order.Shipment is { } shipment)
+                {
+                    <h3 style="margin-top:var(--space-3)">Shipment</h3>
+                    <p style="margin:0">@shipment.Carrier · @shipment.TrackingNumber<br />Shipped @Format.Date(shipment.ShippedAt)</p>
+                }
+            </div>
+        </aside>
+    </div>
+}
+
+<ConfirmDialog Open="@(_pendingStatus is not null)" Title="@($"{(_pendingStatus == OrderStatus.Cancelled ? "Cancel" : "Update")} this order?")"
+               Danger="@(_pendingStatus == OrderStatus.Cancelled)" ConfirmText="@(_pendingStatus == OrderStatus.Cancelled ? "Cancel order" : "Update status")" CancelText="Back"
+               Message="@($"The order will move to \"{(_pendingStatus is { } s ? Format.Status(s) : string.Empty)}\". The customer sees this in their order tracking.")"
+               OnConfirm="ConfirmStatusAsync" OnCancel="() => _pendingStatus = null" />
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private AdminOrderDetail? _detail;
+    private string? _error;
+    private ApiException? _actionError;
+    private bool _busy;
+    private string? _note;
+    private string? _carrier;
+    private string? _tracking;
+    private OrderStatus? _pendingStatus;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _detail = await Api.GetAsync<AdminOrderDetail>($"api/admin/orders/{Id}");
+        }
+        catch (ApiException e) when (e.Status == System.Net.HttpStatusCode.NotFound)
+        {
+            _error = "This order doesn't exist.";
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _error = "We couldn't load this order. Please refresh to try again.";
+        }
+    }
+
+    private void RequestStatus(OrderStatus status) => _pendingStatus = status;
+
+    private async Task ConfirmStatusAsync()
+    {
+        if (_pendingStatus is not { } status)
+        {
+            return;
+        }
+
+        _pendingStatus = null;
+        await RunAsync(async () =>
+        {
+            _detail = await Api.PutAsync<AdminOrderDetail>($"api/admin/orders/{Id}/status", new UpdateOrderStatusRequest(status, string.IsNullOrWhiteSpace(_note) ? null : _note.Trim()));
+            _note = null;
+            Toasts.Success($"Order marked as {Format.Status(status).ToLowerInvariant()}.");
+        });
+    }
+
+    private Task ShipAsync() => RunAsync(async () =>
+    {
+        _detail = await Api.PostAsync<AdminOrderDetail>($"api/admin/orders/{Id}/ship", new ShipOrderRequest(_carrier?.Trim() ?? string.Empty, _tracking?.Trim() ?? string.Empty));
+        Toasts.Success("Order marked as shipped. The customer can now track it.");
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            await action();
+        }
+        catch (ApiException e)
+        {
+            _actionError = e;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Readable summary of the ordered design (the exact JSON is in the production package).</summary>
+    private static IEnumerable<string> DescribeDesign(JsonElement design)
+    {
+        if (!design.TryGetProperty("surfaces", out var surfaces))
+        {
+            yield break;
+        }
+
+        foreach (var surface in surfaces.EnumerateArray())
+        {
+            var area = surface.GetProperty("printArea").GetString();
+            foreach (var element in surface.GetProperty("elements").EnumerateArray())
+            {
+                var size = $"{element.GetProperty("width").GetDecimal():0} × {element.GetProperty("height").GetDecimal():0} mm";
+                var rotation = element.GetProperty("rotation").GetDecimal();
+                var turn = rotation == 0 ? string.Empty : $", rotated {rotation:0.#}°";
+                yield return element.GetProperty("type").GetString() == "text"
+                    ? $"{area}: text \"{element.GetProperty("text").GetString()}\" in {element.GetProperty("fontFamily").GetString()} {element.GetProperty("fontSize").GetDecimal():0.#}pt {element.GetProperty("color").GetString()} ({size}{turn})"
+                    : $"{area}: image ({size}{turn})";
+            }
+        }
+    }
+
+    private static IEnumerable<string> UploadIds(JsonElement design) =>
+        design.TryGetProperty("surfaces", out var surfaces)
+            ? surfaces.EnumerateArray()
+                .SelectMany(s => s.GetProperty("elements").EnumerateArray())
+                .Where(e => e.GetProperty("type").GetString() == "image" && e.TryGetProperty("uploadId", out _))
+                .Select(e => e.GetProperty("uploadId").GetString()!)
+                .Distinct()
+            : [];
+}

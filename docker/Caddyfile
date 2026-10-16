@@ -1,0 +1,7 @@
+# TLS termination for local Docker runs. Authentication cookies are Secure (__Host- prefix),
+# so the API must always be reached over HTTPS.
+https://localhost:8443 {
+	tls internal
+	encode zstd gzip
+	reverse_proxy api:8080
+}

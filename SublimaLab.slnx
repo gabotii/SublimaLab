@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SublimaLab.Api/SublimaLab.Api.csproj" />
+    <Project Path="src/SublimaLab.Application/SublimaLab.Application.csproj" />
+    <Project Path="src/SublimaLab.Blazor/SublimaLab.Blazor.csproj" />
+    <Project Path="src/SublimaLab.Domain/SublimaLab.Domain.csproj" />
+    <Project Path="src/SublimaLab.Infrastructure/SublimaLab.Infrastructure.csproj" />
+    <Project Path="src/SublimaLab.Migrations.Postgres/SublimaLab.Migrations.Postgres.csproj" />
+    <Project Path="src/SublimaLab.Migrations.Sqlite/SublimaLab.Migrations.Sqlite.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SublimaLab.Blazor.Tests/SublimaLab.Blazor.Tests.csproj" />
+    <Project Path="tests/SublimaLab.IntegrationTests/SublimaLab.IntegrationTests.csproj" />
+    <Project Path="tests/SublimaLab.UnitTests/SublimaLab.UnitTests.csproj" />
+  </Folder>
+</Solution>

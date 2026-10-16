@@ -1,0 +1,14 @@
+@* Product illustration from the shared SVG sprite, tinted with the selected colour. *@
+<span class="product-art @Class" style="color:@SafeColor" role="@(Label is null ? null : "img")" aria-label="@Label" aria-hidden="@(Label is null ? "true" : null)">
+    <svg viewBox="0 0 240 240" focusable="false" aria-hidden="true"><use href="images/art/sprite.svg#@Kind"></use></svg>
+</span>
+
+@code {
+    [Parameter] public string Kind { get; set; } = ArtKind.TShirt;
+    [Parameter] public string? Color { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    // Only allow #RRGGBB values into the style attribute.
+    private string SafeColor => Color is { Length: 7 } c && c[0] == '#' && c[1..].All(Uri.IsHexDigit) ? c : "#ffffff";
+}

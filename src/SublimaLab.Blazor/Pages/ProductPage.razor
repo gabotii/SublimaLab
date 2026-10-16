@@ -1,0 +1,333 @@
+@page "/products/{Slug}"
+@inject ApiClient Api
+@inject CartState CartState
+@inject CatalogCache Catalog
+@inject ToastService Toasts
+
+<PageTitle>@(_product?.Name ?? "Product") — SublimaLab</PageTitle>
+@if (_product is not null)
+{
+    <ProductJsonLd Product="_product" />
+}
+
+<div class="container">
+    @if (_notFound)
+    {
+        <div class="section">
+            <div class="empty-state">
+                <Icon Name="package" Class="empty-state__icon" />
+                <h1>Product not found</h1>
+                <p>This product may have been removed or the link is incorrect.</p>
+                <a class="btn btn--primary" href="shop">Browse the shop</a>
+            </div>
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div class="section">
+            <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_error</p></div>
+        </div>
+    }
+    else if (_product is null)
+    {
+        <div class="pdp" aria-busy="true">
+            <div class="skeleton" style="aspect-ratio:1;border-radius:var(--radius-lg)"></div>
+            <div>
+                <div class="skeleton skeleton--title"></div>
+                <div class="skeleton skeleton--line" style="width:30%"></div>
+                <div class="skeleton skeleton--line"></div>
+                <div class="skeleton skeleton--line" style="width:85%"></div>
+                <div class="skeleton skeleton--block" style="margin-top:24px"></div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <nav class="breadcrumbs" aria-label="Breadcrumb" style="padding-top:var(--space-5)">
+            <ol>
+                <li><a href="">Home</a></li>
+                <li><a href="shop/@_product.CategorySlug">@_product.CategoryName</a></li>
+                <li aria-current="page">@_product.Name</li>
+            </ol>
+        </nav>
+
+        <div class="pdp">
+            <div class="pdp__gallery">
+                @if (_product.IsCustomizable)
+                {
+                    <span class="badge badge--brand">Customizable</span>
+                }
+                <ProductVisual ImageUrl="@(_product.Images.FirstOrDefault()?.Url)" Kind="@ArtKind.FromProductSlug(_product.Slug)" Color="@_selected?.ColorHex"
+                               Label="@($"{_product.Name} in {_selected?.ColorName}")" />
+            </div>
+
+            <div class="pdp__info">
+                <span class="eyebrow">@_product.CategoryName</span>
+                <h1>@_product.Name</h1>
+                <p class="pdp__price" aria-live="polite">
+                    @Format.Money(_selected?.Price ?? _product.Price, _product.Currency)
+                    @if (_product.IsCustomizable && _product.Customization is { } c)
+                    {
+                        <small> · design printing from @Format.Money(c.BaseFee, _product.Currency)</small>
+                    }
+                </p>
+                <p class="pdp__lead">@_product.ShortDescription</p>
+
+                @if (Colors.Count > 1)
+                {
+                    <fieldset class="option-group">
+                        <legend>Color: <span>@_selectedColor</span></legend>
+                        <div class="swatch-options">
+                            @foreach (var color in Colors)
+                            {
+                                <button type="button" class="swatch-option" style="background:@color.Hex"
+                                        aria-pressed="@((color.Name == _selectedColor).ToString().ToLowerInvariant())"
+                                        aria-label="@color.Name" title="@color.Name" @onclick="() => SelectColor(color.Name)"></button>
+                            }
+                        </div>
+                    </fieldset>
+                }
+                else if (Colors.Count == 1)
+                {
+                    <p class="text-sm"><strong>Color:</strong> @Colors[0].Name</p>
+                }
+
+                @if (Sizes.Count > 1)
+                {
+                    <fieldset class="option-group">
+                        <legend>@SizeLabel: <span>@_selected?.Size</span></legend>
+                        <div class="size-options">
+                            @foreach (var variant in Sizes)
+                            {
+                                <button type="button" class="size-option" aria-pressed="@((variant.Id == _selected?.Id).ToString().ToLowerInvariant())"
+                                        @onclick="() => _selected = variant">
+                                    @variant.Size
+                                </button>
+                            }
+                        </div>
+                    </fieldset>
+                }
+                else if (Sizes.Count == 1 && Sizes[0].Size is not null)
+                {
+                    <p><strong>@SizeLabel:</strong> @Sizes[0].Size</p>
+                }
+
+                <div class="pdp__actions">
+                    <div class="pdp__buy">
+                        <QuantityStepper @bind-Value="_quantity" Label="Quantity" />
+                        <button type="button" class="btn btn--secondary btn--lg" @onclick="AddToCartAsync" disabled="@(_adding || _selected is null)">
+                            @if (_adding)
+                            {
+                                <span class="btn__spinner" aria-hidden="true"></span>
+                            }
+                            <Icon Name="cart" /> Add to cart
+                        </button>
+                    </div>
+
+                    @if (_product.IsCustomizable && _product.Customization is { } customization)
+                    {
+                        <div class="customize-callout">
+                            <Icon Name="sparkles" />
+                            <p>
+                                <strong>Customize this product</strong>
+                                Add your artwork and text on @PrintAreaSummary(customization), then preview it before you order.
+                            </p>
+                        </div>
+                        <a class="btn btn--primary btn--lg btn--block" href="@($"customize/{_product.Slug}?variant={_selected?.Id}")">
+                            <Icon Name="sparkles" /> Customize this product
+                        </a>
+                    }
+                </div>
+
+                <ul class="info-list">
+                    <li><Icon Name="clock" /><span>Printed in <strong>@_product.ProductionTimeDays business @(_product.ProductionTimeDays == 1 ? "day" : "days")</strong>, then shipped.</span></li>
+                    <li><Icon Name="truck" /><span>@ShippingSummary</span></li>
+                    <li><Icon Name="shield" /><span>Secure checkout. Your card details are never stored by SublimaLab.</span></li>
+                </ul>
+
+                <div style="margin-top:var(--space-5)">
+                    <details class="disclosure" open>
+                        <summary>Description</summary>
+                        <div class="disclosure__body"><p>@_product.Description</p></div>
+                    </details>
+                    @if (_product.Specifications.Count > 0)
+                    {
+                        <details class="disclosure">
+                            <summary>Specifications</summary>
+                            <div class="disclosure__body">
+                                <dl class="spec-list">
+                                    @foreach (var spec in _product.Specifications)
+                                    {
+                                        <dt>@spec.Name</dt>
+                                        <dd>@spec.Value</dd>
+                                    }
+                                </dl>
+                            </div>
+                        </details>
+                    }
+                    <details class="disclosure">
+                        <summary>Shipping &amp; returns</summary>
+                        <div class="disclosure__body">
+                            @foreach (var method in _shippingMethods)
+                            {
+                                <p><strong>@method.Name</strong>: @Format.Money(method.Cost, method.Currency), @method.MinDeliveryDays–@method.MaxDeliveryDays business days after production. @method.Description</p>
+                            }
+                            <p>Every item is made to order. If something arrives damaged or misprinted, contact us within 30 days and we'll reprint it for free.</p>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </div>
+
+        @if (_related.Count > 0)
+        {
+            <section class="section--tight" aria-labelledby="related-title">
+                <h2 id="related-title">You may also like</h2>
+                <div class="grid">
+                    @foreach (var product in _related)
+                    {
+                        <ProductCard Product="product" @key="product.Id" />
+                    }
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Slug { get; set; } = string.Empty;
+
+    private ProductDetail? _product;
+    private Variant? _selected;
+    private string? _selectedColor;
+    private int _quantity = 1;
+    private bool _adding;
+    private bool _notFound;
+    private string? _error;
+    private IReadOnlyList<ShippingMethod> _shippingMethods = [];
+    private IReadOnlyList<ProductSummary> _related = [];
+    private string? _loadedSlug;
+
+    private List<ColorSwatch> Colors =>
+        _product?.Variants.Select(v => new ColorSwatch(v.ColorName, v.ColorHex)).DistinctBy(c => c.Name).ToList() ?? [];
+
+    private List<Variant> Sizes =>
+        _product?.Variants.Where(v => v.ColorName == _selectedColor).ToList() ?? [];
+
+    private string SizeLabel => _product?.CategorySlug == "t-shirts" ? "Size" : "Option";
+
+    private string ShippingSummary
+    {
+        get
+        {
+            var standard = _shippingMethods.FirstOrDefault(m => m.Code == "standard");
+            return standard?.FreeShippingThreshold is { } threshold
+                ? $"Free standard shipping on orders over {Format.Money(threshold, standard.Currency)}. Express available at checkout."
+                : "Standard and express shipping available at checkout.";
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Slug == _loadedSlug)
+        {
+            return;
+        }
+
+        _loadedSlug = Slug;
+        _product = null;
+        _notFound = false;
+        _error = null;
+        _quantity = 1;
+        _related = [];
+
+        try
+        {
+            _product = await Api.GetAsync<ProductDetail>($"api/products/{Uri.EscapeDataString(Slug)}");
+            var defaultVariant = _product.Variants.FirstOrDefault(v => v.Size == "M") ?? _product.Variants.FirstOrDefault();
+            _selectedColor = defaultVariant?.ColorName;
+            _selected = defaultVariant;
+        }
+        catch (ApiException e) when (e.Status == System.Net.HttpStatusCode.NotFound)
+        {
+            _notFound = true;
+            return;
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _error = "We couldn't load this product. Please refresh to try again.";
+            return;
+        }
+
+        await Task.WhenAll(LoadShippingAsync(), LoadRelatedAsync(_product));
+    }
+
+    private void SelectColor(string colorName)
+    {
+        _selectedColor = colorName;
+        // Keep the chosen size when it exists in the new colour.
+        var currentSize = _selected?.Size;
+        _selected = Sizes.FirstOrDefault(v => v.Size == currentSize) ?? Sizes.FirstOrDefault();
+    }
+
+    private async Task AddToCartAsync()
+    {
+        if (_product is null || _selected is null)
+        {
+            return;
+        }
+
+        _adding = true;
+        try
+        {
+            await CartState.AddAsync(_product.Id, _selected.Id, _quantity);
+            Toasts.Success($"{_quantity} × {_product.Name} ({VariantText(_selected)}) added to your cart.", "View cart", "cart");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+        finally
+        {
+            _adding = false;
+        }
+    }
+
+    private async Task LoadShippingAsync()
+    {
+        try
+        {
+            _shippingMethods = await Catalog.GetShippingMethodsAsync();
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _shippingMethods = [];
+        }
+    }
+
+    private async Task LoadRelatedAsync(ProductDetail product)
+    {
+        try
+        {
+            var result = await Api.GetAsync<PagedResult<ProductSummary>>($"api/products?category={product.CategorySlug}&pageSize=5");
+            _related = result.Items.Where(p => p.Id != product.Id).Take(4).ToList();
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _related = [];
+        }
+    }
+
+    private static string VariantText(Variant variant) => variant.Size is null ? variant.ColorName : $"{variant.ColorName}, {variant.Size}";
+
+    private static string PrintAreaSummary(Customization customization)
+    {
+        var areas = customization.PrintAreas.Select(a => $"{a.Name.ToLowerInvariant()} ({a.WidthMm / 10:0.#} × {a.HeightMm / 10:0.#} cm)").ToList();
+        return areas.Count switch
+        {
+            0 => "the product",
+            1 => $"the {areas[0]}",
+            _ => "the " + string.Join(", ", areas.Take(areas.Count - 1)) + " and " + areas[^1],
+        };
+    }
+}

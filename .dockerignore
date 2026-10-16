@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/App_Data/
+**/*.db
+**/node_modules/
+.git/
+.vs/
+.vscode/
+.idea/
+tests/
+docs/
+docker/.env

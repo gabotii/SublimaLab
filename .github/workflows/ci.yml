@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  customizer:
+    name: Design studio (React + three.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/SublimaLab.Customizer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/SublimaLab.Customizer/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Unit tests
+        run: npx vitest run
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Build bundle
+        run: npx vite build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: customizer-bundle
+          path: src/SublimaLab.Blazor/wwwroot/customizer
+
+  build-test:
+    name: .NET build and tests
+    needs: customizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: customizer-bundle
+          path: src/SublimaLab.Blazor/wwwroot/customizer
+
+      - name: Restore
+        run: dotnet restore SublimaLab.slnx
+
+      - name: Static analysis (code style)
+        run: dotnet format SublimaLab.slnx --verify-no-changes --no-restore --severity warn
+
+      - name: Build (analyzers, warnings as errors)
+        run: dotnet build SublimaLab.slnx -c Release --no-restore -p:SkipCustomizerBuild=true
+
+      - name: Vulnerable packages
+        run: |
+          dotnet list SublimaLab.slnx package --vulnerable --include-transitive | tee vulnerable.txt
+          ! grep -q "has the following vulnerable packages" vulnerable.txt
+
+      - name: Test (unit, integration, component)
+        run: dotnet test SublimaLab.slnx -c Release --no-build --blame-hang-timeout 5m --logger trx --results-directory TestResults --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
+
+      - name: Migration bundle (PostgreSQL)
+        run: |
+          dotnet tool restore
+          dotnet ef migrations bundle --project src/SublimaLab.Migrations.Postgres --startup-project src/SublimaLab.Migrations.Postgres \
+            --context PostgresAppDbContext --configuration Release --self-contained -r linux-x64 --output artifacts/efbundle-postgres
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: migrations-bundle-postgres
+          path: artifacts/efbundle-postgres
+
+  docker:
+    name: Docker image
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image (includes storefront and studio)
+        run: docker build -f docker/api.Dockerfile -t sublimalab-api:${{ github.sha }} .
+      - name: Build migrations image
+        run: docker build -f docker/api.Dockerfile --target migrations -t sublimalab-migrations:${{ github.sha }} .
+      # Deployment: push to a registry and roll out from here once an environment exists.

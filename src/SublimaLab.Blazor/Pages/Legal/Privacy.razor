@@ -1,0 +1,55 @@
+@page "/privacy"
+
+<LegalPage Title="Privacy policy">
+    <p>This policy explains what personal data @StoreInfo.LegalName ("@StoreInfo.BrandName", "we") collects when you use this website, why, and the choices you have. For any privacy question or request, email <a href="mailto:@StoreInfo.PrivacyEmail">@StoreInfo.PrivacyEmail</a>.</p>
+
+    <h2>What we collect</h2>
+    <ul>
+        <li><strong>Account details:</strong> your name, email address, optional phone number and a securely hashed password. If you turn on two-step verification, we also store your authenticator key and hashed recovery codes.</li>
+        <li><strong>Orders:</strong> what you bought, delivery addresses, contact details for delivery, and payment status. Card details go straight to our payment provider; we don't receive your full card number.</li>
+        <li><strong>Your designs:</strong> images you upload and the designs you save or order. We remove all hidden information from uploaded images (for example camera details and GPS location) when we store them.</li>
+        <li><strong>Technical data:</strong> IP address and request logs, used to keep the service secure and working, for example to limit repeated failed sign-ins.</li>
+    </ul>
+
+    <h2>Why we use it</h2>
+    <ul>
+        <li>To make and deliver your orders and give you support: this is necessary to perform our contract with you.</li>
+        <li>To send account and order emails (confirmation, password reset, order updates). We don't send marketing emails.</li>
+        <li>To protect the store and our customers against fraud and abuse, and to meet our legal duties, such as keeping tax records.</li>
+    </ul>
+
+    <h2>Cookies</h2>
+    <p>We only use cookies that the store needs to work. We don't use advertising or third-party tracking cookies.</p>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead><tr><th scope="col">Cookie</th><th scope="col">Purpose</th><th scope="col">Lasts</th></tr></thead>
+            <tbody>
+                <tr><td><code>__Host-sl.auth</code></td><td>Keeps you signed in</td><td>Session, or 14 days with "Keep me signed in"</td></tr>
+                <tr><td><code>__Host-sl.2fa</code></td><td>Remembers the first sign-in step while you enter a two-step code</td><td>5 minutes</td></tr>
+                <tr><td><code>__Host-sl.sid</code></td><td>Keeps a guest's cart and uploads before they sign in</td><td>30 days</td></tr>
+                <tr><td><code>__Host-sl.af</code></td><td>Protects forms against cross-site request forgery</td><td>Session</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h2>Who we share it with</h2>
+    <p>We share data only with service providers who help us run the store, under contracts that protect it: our payment provider, our email delivery provider, our hosting provider, and shipping carriers (name, address and phone, to deliver your parcel). We never sell your personal data.</p>
+
+    <h2>How long we keep it</h2>
+    <ul>
+        <li>Guest uploads that were never used in a design, cart or order, and guest carts: deleted automatically after 30 days.</li>
+        <li>Your account and saved designs: until you ask us to delete your account.</li>
+        <li>Orders and invoices: as long as tax and accounting law requires [period], even if you delete your account.</li>
+    </ul>
+
+    <h2>Your rights</h2>
+    <p>Depending on where you live, you can ask to access, correct, export or delete your personal data, object to or restrict how we use it, and complain to your data protection authority. You can update your profile and addresses yourself under <a href="account?tab=profile">My account</a>; for anything else, email <a href="mailto:@StoreInfo.PrivacyEmail">@StoreInfo.PrivacyEmail</a>. We reply within one month.</p>
+
+    <h2>Security</h2>
+    <p>The site is served only over HTTPS. Passwords are hashed, sign-in cookies can't be read by scripts, and repeated failed sign-ins lock the account temporarily. Administrator accounts must use two-step verification.</p>
+
+    <h2>Changes</h2>
+    <p>If we change this policy we will update the date above, and tell you by email about important changes.</p>
+
+    <p>Data controller: @StoreInfo.LegalName, @StoreInfo.Address.</p>
+</LegalPage>

@@ -1,0 +1,331 @@
+@page "/shop"
+@page "/shop/{CategorySlug}"
+@implements IDisposable
+@inject ApiClient Api
+@inject CatalogCache Catalog
+@inject NavigationManager Navigation
+
+<PageTitle>@(CurrentCategory?.Name ?? "Shop") — SublimaLab</PageTitle>
+
+<div class="container">
+    <header class="page-header">
+        <nav class="breadcrumbs" aria-label="Breadcrumb">
+            <ol>
+                <li><a href="">Home</a></li>
+                <li><a href="shop" aria-current="@(CurrentCategory is null ? "page" : null)">Shop</a></li>
+                @if (CurrentCategory is not null)
+                {
+                    <li aria-current="page">@CurrentCategory.Name</li>
+                }
+            </ol>
+        </nav>
+        <h1>@Heading</h1>
+        <p>@Intro</p>
+    </header>
+
+    <div class="shop-toolbar">
+        <nav class="chips" aria-label="Categories">
+            <a class="chip" href="@CategoryHref(null)" aria-current="@(CategorySlug is null ? "page" : null)">All</a>
+            @foreach (var category in _categories)
+            {
+                <a class="chip" href="@CategoryHref(category.Slug)" aria-current="@(IsCurrent(category) ? "page" : null)">
+                    @category.Name
+                </a>
+            }
+            <button type="button" class="chip" aria-pressed="@((Customizable == true).ToString().ToLowerInvariant())" @onclick="ToggleCustomizable">
+                <Icon Name="sparkles" Class="toast__icon" /> Customizable
+            </button>
+        </nav>
+
+        <form class="filters" role="search" @onsubmit="ApplySearchNow" @onsubmit:preventDefault>
+            <div class="field field--search">
+                <label class="field__label" for="shop-search">Search</label>
+                <input id="shop-search" class="input" type="search" placeholder="Search tees, mugs, keychains…" autocomplete="off"
+                       value="@_searchText" @oninput="OnSearchInput" maxlength="100" />
+            </div>
+            <div class="field">
+                <label class="field__label" for="shop-price">Price</label>
+                <select id="shop-price" class="select" value="@PriceKey" @onchange="OnPriceChanged">
+                    @foreach (var range in PriceRanges)
+                    {
+                        <option value="@range.Key">@range.Label</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label class="field__label" for="shop-sort">Sort by</label>
+                <select id="shop-sort" class="select" value="@(Sort ?? "Featured")" @onchange="OnSortChanged">
+                    <option value="Featured">Featured</option>
+                    <option value="Newest">Newest</option>
+                    <option value="PriceAsc">Price: low to high</option>
+                    <option value="PriceDesc">Price: high to low</option>
+                    <option value="Name">Name</option>
+                </select>
+            </div>
+            <div class="field">
+                <span class="field__label filters__spacer" aria-hidden="true">&nbsp;</span>
+                <button type="button" class="btn btn--ghost" @onclick="ClearFilters" disabled="@(!HasFilters)">Clear filters</button>
+            </div>
+        </form>
+    </div>
+
+    <p class="results-meta" role="status" aria-live="polite">
+        @if (_result is not null && !_loading)
+        {
+            @(_result.TotalCount == 1 ? "1 product" : $"{_result.TotalCount} products")
+        }
+    </p>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert--error" role="alert">
+            <Icon Name="alert" />
+            <div><p>@_error</p><button type="button" class="btn btn--sm btn--secondary" @onclick="LoadAsync">Try again</button></div>
+        </div>
+    }
+    else if (_loading || _result is null)
+    {
+        <div class="grid" aria-busy="true">
+            @for (var i = 0; i < 8; i++)
+            {
+                <ProductCardSkeleton />
+            }
+        </div>
+    }
+    else if (_result.Items.Count == 0)
+    {
+        <div class="empty-state">
+            <Icon Name="search" Class="empty-state__icon" />
+            <h2>No products match your filters</h2>
+            <p>Try a different search or remove a filter to see more products.</p>
+            <button type="button" class="btn btn--primary" @onclick="ClearFilters">Clear filters</button>
+        </div>
+    }
+    else
+    {
+        <h2 class="visually-hidden">Products</h2>
+        <div class="grid">
+            @foreach (var product in _result.Items)
+            {
+                <ProductCard Product="product" @key="product.Id" />
+            }
+        </div>
+
+        @if (_result.TotalPages > 1)
+        {
+            <nav aria-label="Pagination">
+                <ul class="pagination">
+                    <li>
+                        @if (CurrentPage > 1)
+                        {
+                            <a href="@PageHref(CurrentPage - 1)" aria-label="Previous page">‹</a>
+                        }
+                        else
+                        {
+                            <span class="disabled" aria-hidden="true">‹</span>
+                        }
+                    </li>
+                    @for (var p = 1; p <= _result.TotalPages; p++)
+                    {
+                        var pageNumber = p;
+                        <li><a href="@PageHref(pageNumber)" aria-current="@(pageNumber == CurrentPage ? "page" : null)" aria-label="Page @pageNumber">@pageNumber</a></li>
+                    }
+                    <li>
+                        @if (_result.HasNextPage)
+                        {
+                            <a href="@PageHref(CurrentPage + 1)" aria-label="Next page">›</a>
+                        }
+                        else
+                        {
+                            <span class="disabled" aria-hidden="true">›</span>
+                        }
+                    </li>
+                </ul>
+            </nav>
+        }
+    }
+</div>
+
+@code {
+    private const int PageSize = 12;
+
+    private sealed record PriceRange(string Key, string Label, decimal? Min, decimal? Max);
+
+    private static readonly PriceRange[] PriceRanges =
+    [
+        new("any", "Any price", null, null),
+        new("under-10", "Under $10", null, 9.99m),
+        new("10-20", "$10 – $20", 10m, 20m),
+        new("20-30", "$20 – $30", 20m, 30m),
+        new("over-30", "Over $30", 30m, null),
+    ];
+
+    [Parameter] public string? CategorySlug { get; set; }
+    [SupplyParameterFromQuery(Name = "q")] public string? Search { get; set; }
+    [SupplyParameterFromQuery] public string? Sort { get; set; }
+    [SupplyParameterFromQuery(Name = "price")] public string? Price { get; set; }
+    [SupplyParameterFromQuery] public bool? Customizable { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public int? PageNumber { get; set; }
+
+    private IReadOnlyList<Category> _categories = [];
+    private PagedResult<ProductSummary>? _result;
+    private bool _loading;
+    private string? _error;
+    private string _searchText = string.Empty;
+    private CancellationTokenSource? _debounce;
+    private CancellationTokenSource? _loadCancellation;
+    private string? _lastQuery;
+
+    private Category? CurrentCategory => _categories.FirstOrDefault(IsCurrent);
+    private int CurrentPage => Math.Max(PageNumber ?? 1, 1);
+    private string PriceKey => PriceRanges.Any(r => r.Key == Price) ? Price! : "any";
+    private bool HasFilters => !string.IsNullOrWhiteSpace(Search) || PriceKey != "any" || Customizable == true || (Sort is not null && Sort != "Featured");
+
+    private string Heading => Customizable == true && CurrentCategory is null
+        ? "Choose a product to customize"
+        : CurrentCategory?.Name ?? "Shop all products";
+
+    private string Intro => Customizable == true && CurrentCategory is null
+        ? "Every product below can carry your artwork and text. Pick one to start designing."
+        : CurrentCategory?.Description ?? "Custom-printed T-shirts, mugs and keychains, ready for your designs.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _categories = await Catalog.GetCategoriesAsync();
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _categories = [];
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _searchText = Search ?? string.Empty;
+        var query = BuildApiQuery();
+        if (query != _lastQuery)
+        {
+            _lastQuery = query;
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loadCancellation?.Cancel();
+        _loadCancellation = new CancellationTokenSource();
+        var token = _loadCancellation.Token;
+
+        _loading = true;
+        _error = null;
+        try
+        {
+            var result = await Api.GetAsync<PagedResult<ProductSummary>>($"api/products?{BuildApiQuery()}", token);
+            if (!token.IsCancellationRequested)
+            {
+                _result = result;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _error = "We couldn't load products right now. Please try again.";
+        }
+
+        _loading = false;
+    }
+
+    private string BuildApiQuery()
+    {
+        var range = PriceRanges.First(r => r.Key == PriceKey);
+        var parts = new List<string> { $"page={CurrentPage}", $"pageSize={PageSize}" };
+        if (CategorySlug is not null) parts.Add($"category={Uri.EscapeDataString(CategorySlug)}");
+        if (!string.IsNullOrWhiteSpace(Search)) parts.Add($"search={Uri.EscapeDataString(Search.Trim())}");
+        if (Sort is "Newest" or "PriceAsc" or "PriceDesc" or "Name") parts.Add($"sort={Sort}");
+        if (range.Min is { } min) parts.Add($"minPrice={min}");
+        if (range.Max is { } max) parts.Add($"maxPrice={max}");
+        if (Customizable == true) parts.Add("customizable=true");
+        return string.Join('&', parts);
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        _searchText = e.Value?.ToString() ?? string.Empty;
+        _debounce?.Cancel();
+        _debounce = new CancellationTokenSource();
+        _ = DebouncedSearchAsync(_debounce.Token);
+    }
+
+    private async Task DebouncedSearchAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(350, token);
+            NavigateWith(new() { ["q"] = string.IsNullOrWhiteSpace(_searchText) ? null : _searchText.Trim(), ["page"] = null });
+        }
+        catch (TaskCanceledException)
+        {
+            // A newer keystroke replaced this search.
+        }
+    }
+
+    private void ApplySearchNow()
+    {
+        _debounce?.Cancel();
+        NavigateWith(new() { ["q"] = string.IsNullOrWhiteSpace(_searchText) ? null : _searchText.Trim(), ["page"] = null });
+    }
+
+    private void OnPriceChanged(ChangeEventArgs e)
+    {
+        var key = e.Value?.ToString();
+        NavigateWith(new() { ["price"] = key == "any" ? null : key, ["page"] = null });
+    }
+
+    private void OnSortChanged(ChangeEventArgs e)
+    {
+        var sort = e.Value?.ToString();
+        NavigateWith(new() { ["sort"] = sort == "Featured" ? null : sort, ["page"] = null });
+    }
+
+    private void ToggleCustomizable() =>
+        NavigateWith(new() { ["customizable"] = Customizable == true ? null : true, ["page"] = null });
+
+    private void ClearFilters()
+    {
+        _searchText = string.Empty;
+        Navigation.NavigateTo(CategoryHref(CategorySlug, keepFilters: false));
+    }
+
+    private void NavigateWith(Dictionary<string, object?> changes) =>
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(changes), replace: true);
+
+    private string PageHref(int page) =>
+        Navigation.GetUriWithQueryParameter("page", page == 1 ? null : page);
+
+    private string CategoryHref(string? slug, bool keepFilters = true)
+    {
+        var path = slug is null ? "shop" : $"shop/{slug}";
+        if (!keepFilters)
+        {
+            return path;
+        }
+
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(Search)) query.Add($"q={Uri.EscapeDataString(Search)}");
+        if (Customizable == true) query.Add("customizable=true");
+        return query.Count == 0 ? path : $"{path}?{string.Join('&', query)}";
+    }
+
+    private bool IsCurrent(Category category) => string.Equals(category.Slug, CategorySlug, StringComparison.OrdinalIgnoreCase);
+
+    public void Dispose()
+    {
+        _debounce?.Cancel();
+        _loadCancellation?.Cancel();
+    }
+}

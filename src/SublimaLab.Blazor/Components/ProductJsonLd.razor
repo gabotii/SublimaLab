@@ -1,0 +1,57 @@
+@* schema.org Product data for search engines (rich results: price, availability, images). *@
+@inject NavigationManager Navigation
+
+<HeadContent>
+    @((MarkupString)$"<script type=\"application/ld+json\">{BuildJson()}</script>")
+</HeadContent>
+
+@code {
+    [Parameter, EditorRequired] public ProductDetail Product { get; set; } = default!;
+
+    /// <summary>
+    /// Written with Utf8JsonWriter (trim-safe, no reflection). The default encoder escapes
+    /// &lt;, &gt; and &amp;, so product text can't close the script element.
+    /// </summary>
+    internal string BuildJson()
+    {
+        var baseUri = new Uri(Navigation.BaseUri);
+        var prices = Product.Variants.Select(v => v.Price).DefaultIfEmpty(Product.Price).ToList();
+
+        using var buffer = new MemoryStream();
+        using (var json = new System.Text.Json.Utf8JsonWriter(buffer))
+        {
+            json.WriteStartObject();
+            json.WriteString("@context", "https://schema.org");
+            json.WriteString("@type", "Product");
+            json.WriteString("name", Product.Name);
+            json.WriteString("description", string.IsNullOrWhiteSpace(Product.ShortDescription) ? Product.Description : Product.ShortDescription);
+            json.WriteString("sku", Product.Variants.FirstOrDefault()?.Sku ?? Product.Slug);
+            json.WriteString("category", Product.CategoryName);
+            json.WriteStartObject("brand");
+            json.WriteString("@type", "Brand");
+            json.WriteString("name", StoreInfo.BrandName);
+            json.WriteEndObject();
+
+            json.WriteStartArray("image");
+            foreach (var image in Product.Images)
+            {
+                json.WriteStringValue(new Uri(baseUri, image.Url).ToString());
+            }
+
+            json.WriteEndArray();
+
+            json.WriteStartObject("offers");
+            json.WriteString("@type", "AggregateOffer");
+            json.WriteString("url", new Uri(baseUri, $"products/{Uri.EscapeDataString(Product.Slug)}").ToString());
+            json.WriteString("priceCurrency", Product.Currency);
+            json.WriteNumber("lowPrice", prices.Min());
+            json.WriteNumber("highPrice", prices.Max());
+            json.WriteNumber("offerCount", Math.Max(1, Product.Variants.Count));
+            json.WriteString("availability", "https://schema.org/InStock");
+            json.WriteEndObject();
+            json.WriteEndObject();
+        }
+
+        return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+    }
+}

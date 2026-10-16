@@ -1,0 +1,128 @@
+@page "/admin"
+@inject ApiClient Api
+
+<PageTitle>Dashboard — SublimaLab admin</PageTitle>
+
+<h1>Dashboard</h1>
+
+@if (_error is not null)
+{
+    <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_error</p></div>
+}
+else if (_data is null)
+{
+    <div class="stat-grid" aria-busy="true">
+        @for (var i = 0; i < 6; i++)
+        {
+            <div class="skeleton" style="height:96px"></div>
+        }
+    </div>
+    <div class="skeleton skeleton--block"></div>
+}
+else
+{
+    <div class="card hero-figure">
+        <p class="stat__label">Revenue, last 30 days</p>
+        <p class="hero-figure__value">@Format.Money(_data.RevenueLast30Days, _data.Currency)</p>
+        <p class="stat__hint">@_data.PaidOrdersLast30Days paid @(_data.PaidOrdersLast30Days == 1 ? "order" : "orders") · @Format.Money(_data.TotalRevenue, _data.Currency) all time</p>
+    </div>
+
+    <div class="stat-grid">
+        <a class="card stat" href="admin/orders?status=Paid" style="text-decoration:none;color:inherit">
+            <p class="stat__label">Awaiting production</p>
+            <p class="stat__value">@_data.AwaitingProduction</p>
+        </a>
+        <a class="card stat" href="admin/orders?status=InProduction" style="text-decoration:none;color:inherit">
+            <p class="stat__label">In production</p>
+            <p class="stat__value">@_data.InProduction</p>
+        </a>
+        <a class="card stat" href="admin/orders?status=ReadyToShip" style="text-decoration:none;color:inherit">
+            <p class="stat__label">Ready to ship</p>
+            <p class="stat__value">@_data.ReadyToShip</p>
+        </a>
+        <a class="card stat" href="admin/orders?status=PaymentPending" style="text-decoration:none;color:inherit">
+            <p class="stat__label">Awaiting payment</p>
+            <p class="stat__value">@_data.PendingPayment</p>
+        </a>
+        <a class="card stat" href="admin/customers" style="text-decoration:none;color:inherit">
+            <p class="stat__label">Customers</p>
+            <p class="stat__value">@_data.Customers.ToString("N0")</p>
+        </a>
+        <a class="card stat" href="admin/products" style="text-decoration:none;color:inherit">
+            <p class="stat__label">Active products</p>
+            <p class="stat__value">@_data.ActiveProducts</p>
+            <p class="stat__hint">@_data.TotalOrders orders all time</p>
+        </a>
+    </div>
+
+    <SalesChart Data="_data.Sales" Currency="@_data.Currency" />
+
+    <div class="form-grid form-grid--2" style="align-items:start">
+        <section aria-labelledby="recent-title">
+            <div class="section__header" style="margin-bottom:var(--space-3)">
+                <h2 id="recent-title" style="font-size:var(--text-lg);margin:0">Recent orders</h2>
+                <a href="admin/orders">All orders</a>
+            </div>
+            @if (_data.RecentOrders.Count == 0)
+            {
+                <p class="text-muted">No orders yet.</p>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th scope="col">Order</th><th scope="col">Status</th><th scope="col" class="num">Total</th></tr></thead>
+                        <tbody>
+                            @foreach (var order in _data.RecentOrders)
+                            {
+                                <tr>
+                                    <td><a href="admin/orders/@order.Id">@order.OrderNumber</a><br /><span class="text-muted">@order.CustomerName</span></td>
+                                    <td><span class="badge badge--@Format.StatusTone(order.Status)">@Format.Status(order.Status)</span></td>
+                                    <td class="num">@Format.Money(order.Total, order.Currency)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+        <section aria-labelledby="top-title">
+            <h2 id="top-title" style="font-size:var(--text-lg);margin-bottom:var(--space-3)">Best sellers</h2>
+            @if (_data.TopProducts.Count == 0)
+            {
+                <p class="text-muted">Sales will appear here once orders are paid.</p>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th scope="col">Product</th><th scope="col" class="num">Units</th><th scope="col" class="num">Revenue</th></tr></thead>
+                        <tbody>
+                            @foreach (var product in _data.TopProducts)
+                            {
+                                <tr><td>@product.ProductName</td><td class="num">@product.Quantity</td><td class="num">@Format.Money(product.Revenue, _data.Currency)</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    private Dashboard? _data;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _data = await Api.GetAsync<Dashboard>("api/admin/dashboard");
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _error = "We couldn't load the dashboard. Please refresh to try again.";
+        }
+    }
+}

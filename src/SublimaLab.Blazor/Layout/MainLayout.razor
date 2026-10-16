@@ -1,0 +1,46 @@
+@inherits LayoutComponentBase
+@inject CartState CartState
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<SiteHeader />
+
+<main id="main" tabindex="-1">
+    <ErrorBoundary @ref="_errorBoundary">
+        <ChildContent>
+            @Body
+        </ChildContent>
+        <ErrorContent>
+            <div class="container section">
+                <div class="empty-state" role="alert">
+                    <h1>Something went wrong</h1>
+                    <p>We hit an unexpected problem while showing this page. Please try again.</p>
+                    <button type="button" class="btn btn--primary" @onclick="Recover">Try again</button>
+                </div>
+            </div>
+        </ErrorContent>
+    </ErrorBoundary>
+</main>
+
+<SiteFooter />
+<ToastRegion />
+
+@code {
+    private ErrorBoundary? _errorBoundary;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await CartState.EnsureLoadedAsync();
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            // The header simply shows an empty cart; pages surface their own errors.
+        }
+    }
+
+    protected override void OnParametersSet() => _errorBoundary?.Recover();
+
+    private void Recover() => _errorBoundary?.Recover();
+}

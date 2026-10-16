@@ -1,0 +1,464 @@
+@page "/admin/products/new"
+@page "/admin/products/{Id:guid}"
+@inject ApiClient Api
+@inject NavigationManager Navigation
+@inject ToastService Toasts
+
+<PageTitle>@(IsNew ? "New product" : _product?.Name ?? "Product") — SublimaLab admin</PageTitle>
+
+<nav class="breadcrumbs" aria-label="Breadcrumb"><ol><li><a href="admin/products">Products</a></li><li aria-current="page">@(IsNew ? "New product" : _product?.Name)</li></ol></nav>
+<div class="row row--between" style="margin-bottom:var(--space-4)">
+    <h1 style="margin:0">@(IsNew ? "New product" : _product?.Name)</h1>
+    @if (_product is not null)
+    {
+        <div class="row">
+            <a class="btn btn--secondary btn--sm" href="products/@_product.Slug" target="_blank" rel="noopener">View in store</a>
+            <span class="badge @(_product.IsActive ? "badge--success" : "badge--warning")">@(_product.IsActive ? "Active" : "Inactive")</span>
+        </div>
+    }
+</div>
+
+@if (_loading)
+{
+    <div class="page-loading" role="status"><span class="spinner"></span></div>
+}
+else
+{
+    @if (!IsNew)
+    {
+        <div class="tabs" role="tablist" aria-label="Product sections">
+            @foreach (var (key, label) in Tabs)
+            {
+                <button type="button" role="tab" class="tab" aria-selected="@((_tab == key).ToString().ToLowerInvariant())" @onclick="() => _tab = key">@label</button>
+            }
+        </div>
+    }
+
+    <ServerErrors Error="_error" />
+
+    @switch (IsNew ? "details" : _tab)
+    {
+        case "details":
+            <form class="card panel form-grid" @onsubmit="SaveDetailsAsync" @onsubmit:preventDefault>
+                <div class="form-grid form-grid--2">
+                    <div class="field">
+                        <label class="field__label" for="p-name">Name</label>
+                        <input id="p-name" class="input" required maxlength="120" @bind="_details.Name" @bind:event="oninput" @bind:after="SuggestSlug" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="p-slug">URL slug</label>
+                        <input id="p-slug" class="input" required maxlength="120" pattern="[a-z0-9]+(-[a-z0-9]+)*" @bind="_details.Slug" />
+                        <FieldError Error="_error" Field="slug" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="p-category">Category</label>
+                        <select id="p-category" class="select" required @bind="_details.CategoryId">
+                            @foreach (var category in _categories)
+                            {
+                                <option value="@category.Id">@category.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="p-price">Base price (USD)</label>
+                        <input id="p-price" class="input" type="number" min="0" step="0.01" required @bind="_details.BasePrice" />
+                    </div>
+                    <div class="field span-2">
+                        <label class="field__label" for="p-short">Short description</label>
+                        <input id="p-short" class="input" maxlength="300" @bind="_details.ShortDescription" />
+                    </div>
+                    <div class="field span-2">
+                        <label class="field__label" for="p-description">Description</label>
+                        <textarea id="p-description" class="input" rows="5" maxlength="4000" @bind="_details.Description"></textarea>
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="p-days">Production time (business days)</label>
+                        <input id="p-days" class="input" type="number" min="0" max="60" @bind="_details.ProductionTimeDays" />
+                    </div>
+                    <div class="field" style="align-content:end">
+                        <label class="checkbox"><input type="checkbox" @bind="_details.IsFeatured" /> Featured on the home page</label>
+                        @if (IsNew)
+                        {
+                            <span class="field__hint">New products start inactive: add variants, then activate.</span>
+                        }
+                        else
+                        {
+                            <label class="checkbox"><input type="checkbox" @bind="_details.IsActive" /> Active (visible in the store)</label>
+                        }
+                    </div>
+                </div>
+
+                <fieldset style="border:0;padding:0;margin:0">
+                    <legend class="field__label">Specifications</legend>
+                    @foreach (var spec in _details.Specifications)
+                    {
+                        var current = spec;
+                        <div class="input-group" style="margin-top:var(--space-2)">
+                            <input class="input" placeholder="Name" aria-label="Specification name" maxlength="60" @bind="current.Name" />
+                            <input class="input" placeholder="Value" aria-label="Specification value" maxlength="200" @bind="current.Value" />
+                            <button type="button" class="icon-btn" aria-label="Remove specification" @onclick="() => _details.Specifications.Remove(current)"><Icon Name="trash" /></button>
+                        </div>
+                    }
+                    <button type="button" class="btn btn--ghost btn--sm" style="margin-top:var(--space-2)" @onclick="() => _details.Specifications.Add(new SpecRow())">Add specification</button>
+                </fieldset>
+
+                <div><button type="submit" class="btn btn--primary" disabled="@_saving">@(IsNew ? "Create product" : "Save details")</button></div>
+            </form>
+            break;
+
+        case "variants":
+            <div class="card panel">
+                <p class="text-muted" style="margin-top:0">Price = base price (@Format.Money(_product!.BasePrice)) + adjustment. Variants you remove are deactivated, so existing carts and orders keep working.</p>
+                <div class="table-wrap edit-table">
+                    <table class="data-table">
+                        <thead><tr><th scope="col">SKU</th><th scope="col">Color</th><th scope="col">Size / option</th><th scope="col">Price adj.</th><th scope="col">Active</th><th scope="col"><span class="visually-hidden">Remove</span></th></tr></thead>
+                        <tbody>
+                            @foreach (var variant in _variants)
+                            {
+                                var row = variant;
+                                <tr>
+                                    <td><input class="input" aria-label="SKU" maxlength="64" @bind="row.Sku" /></td>
+                                    <td>
+                                        <div class="color-input">
+                                            <input type="color" aria-label="Color" @bind="row.ColorHex" />
+                                            <input class="input" aria-label="Color name" maxlength="60" @bind="row.ColorName" />
+                                        </div>
+                                    </td>
+                                    <td><input class="input" aria-label="Size" maxlength="30" @bind="row.Size" /></td>
+                                    <td><input class="input" aria-label="Price adjustment" type="number" step="0.01" @bind="row.PriceAdjustment" /></td>
+                                    <td><input type="checkbox" aria-label="Active" @bind="row.IsActive" /></td>
+                                    <td><button type="button" class="icon-btn" aria-label="Remove variant" @onclick="() => _variants.Remove(row)"><Icon Name="trash" /></button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="row" style="margin-top:var(--space-3)">
+                    <button type="button" class="btn btn--secondary btn--sm" @onclick="AddVariant">Add variant</button>
+                    <button type="button" class="btn btn--primary" @onclick="SaveVariantsAsync" disabled="@_saving">Save variants</button>
+                </div>
+            </div>
+            break;
+
+        case "customization":
+            <div class="card panel form-grid">
+                <label class="checkbox"><input type="checkbox" @bind="_custom.IsEnabled" /> Customers can personalize this product</label>
+                <div class="form-grid form-grid--2">
+                    <div class="field">
+                        <label class="field__label" for="c-kind">Product kind</label>
+                        <select id="c-kind" class="select" @bind="_custom.Kind">
+                            <option value="Apparel">Apparel</option>
+                            <option value="Drinkware">Drinkware</option>
+                            <option value="Accessory">Accessory</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="c-model">3D model</label>
+                        <select id="c-model" class="select" @bind="_custom.ModelUrl">
+                            <option value="">None (2D editor only)</option>
+                            @foreach (var model in Models)
+                            {
+                                <option value="@model">@model</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="c-fee">Design printing fee (per item)</label>
+                        <input id="c-fee" class="input" type="number" min="0" step="0.01" @bind="_custom.BaseFee" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="c-extra">Fee per additional print area</label>
+                        <input id="c-extra" class="input" type="number" min="0" step="0.01" @bind="_custom.AdditionalPrintAreaFee" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="c-max">Max elements per area</label>
+                        <input id="c-max" class="input" type="number" min="1" max="50" @bind="_custom.MaxElementsPerArea" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="c-dpi">Minimum recommended DPI</label>
+                        <input id="c-dpi" class="input" type="number" min="50" max="1200" @bind="_custom.MinRecommendedDpi" />
+                    </div>
+                </div>
+
+                <div>
+                    <h2 style="font-size:var(--text-lg)">Printable areas</h2>
+                    <div class="table-wrap edit-table">
+                        <table class="data-table">
+                            <thead><tr><th scope="col">Key</th><th scope="col">Name</th><th scope="col">Width (mm)</th><th scope="col">Height (mm)</th><th scope="col">Shape</th><th scope="col"><span class="visually-hidden">Remove</span></th></tr></thead>
+                            <tbody>
+                                @foreach (var area in _custom.PrintAreas)
+                                {
+                                    var row = area;
+                                    <tr>
+                                        <td><input class="input" aria-label="Key" maxlength="40" pattern="[a-z0-9-]+" @bind="row.Key" /></td>
+                                        <td><input class="input" aria-label="Name" maxlength="80" @bind="row.Name" /></td>
+                                        <td><input class="input" aria-label="Width in millimetres" type="number" min="5" max="2000" @bind="row.WidthMm" /></td>
+                                        <td><input class="input" aria-label="Height in millimetres" type="number" min="5" max="2000" @bind="row.HeightMm" /></td>
+                                        <td>
+                                            <select class="select" aria-label="Shape" @bind="row.Shape">
+                                                <option value="Rectangle">Rectangle</option>
+                                                <option value="Ellipse">Ellipse</option>
+                                            </select>
+                                        </td>
+                                        <td><button type="button" class="icon-btn" aria-label="Remove print area" @onclick="() => _custom.PrintAreas.Remove(row)"><Icon Name="trash" /></button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="field__hint" style="margin-top:var(--space-2)">Keys used by the 3D models: front, back (tees, keychains) and wrap (mugs). Removing an area makes existing designs on it invalid at checkout.</p>
+                </div>
+                <div class="row">
+                    <button type="button" class="btn btn--secondary btn--sm" @onclick="() => _custom.PrintAreas.Add(new AreaRow())">Add print area</button>
+                    <button type="button" class="btn btn--primary" @onclick="SaveCustomizationAsync" disabled="@_saving">Save customization</button>
+                </div>
+            </div>
+            break;
+
+        case "images":
+            <div class="card panel">
+                <div class="image-grid">
+                    @foreach (var image in _product!.Images)
+                    {
+                        <figure class="card">
+                            <img src="@image.Url" alt="@image.AltText" />
+                            <figcaption>@image.AltText</figcaption>
+                            @if (image.IsUploaded)
+                            {
+                                <button type="button" class="btn btn--ghost btn--sm" @onclick="() => RemoveImageAsync(image)">Remove</button>
+                            }
+                            else
+                            {
+                                <span class="text-muted">Built-in artwork</span>
+                            }
+                        </figure>
+                    }
+                </div>
+                <div class="field" style="margin-top:var(--space-4);max-width:420px">
+                    <label class="field__label" for="image-file">Upload a photo (PNG, JPG or WebP, up to 8 MB)</label>
+                    <InputFile id="image-file" accept="image/png,image/jpeg,image/webp" OnChange="UploadImageAsync" disabled="@_saving" />
+                    <span class="field__hint">Uploaded photos replace the built-in illustration in the storefront.</span>
+                </div>
+            </div>
+            break;
+    }
+}
+
+@code {
+    private static readonly (string Key, string Label)[] Tabs = [("details", "Details"), ("variants", "Variants"), ("customization", "Customization"), ("images", "Photos")];
+    private static readonly string[] Models = ["/models/tshirt.glb", "/models/mug.glb", "/models/acrylic-keychain.glb", "/models/square-keychain.glb", "/models/round-keychain.glb"];
+
+    [Parameter] public Guid? Id { get; set; }
+
+    private bool IsNew => Id is null;
+    private string _tab = "details";
+    private bool _loading = true;
+    private bool _saving;
+    private ApiException? _error;
+    private IReadOnlyList<AdminCategory> _categories = [];
+    private AdminProduct? _product;
+    private DetailsForm _details = new();
+    private List<VariantRow> _variants = [];
+    private CustomizationForm _custom = new();
+    private string _autoSlug = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _error = null;
+        _categories = await Api.GetAsync<IReadOnlyList<AdminCategory>>("api/admin/categories");
+        if (Id is { } id)
+        {
+            Load(await Api.GetAsync<AdminProduct>($"api/admin/products/{id}"));
+        }
+        else
+        {
+            _details = new DetailsForm { CategoryId = _categories.FirstOrDefault()?.Id ?? Guid.Empty, ProductionTimeDays = 2 };
+        }
+
+        _loading = false;
+    }
+
+    private void Load(AdminProduct product)
+    {
+        _product = product;
+        _details = new DetailsForm
+        {
+            CategoryId = product.CategoryId,
+            Name = product.Name,
+            Slug = product.Slug,
+            ShortDescription = product.ShortDescription,
+            Description = product.Description,
+            BasePrice = product.BasePrice,
+            IsActive = product.IsActive,
+            IsFeatured = product.IsFeatured,
+            ProductionTimeDays = product.ProductionTimeDays,
+            Specifications = product.Specifications.Select(s => new SpecRow { Name = s.Name, Value = s.Value }).ToList(),
+        };
+        _variants = product.Variants.Select(v => new VariantRow { Id = v.Id, Sku = v.Sku, ColorName = v.ColorName, ColorHex = v.ColorHex, Size = v.Size, PriceAdjustment = v.PriceAdjustment, IsActive = v.IsActive }).ToList();
+        var c = product.Customization;
+        _custom = c is null
+            ? new CustomizationForm()
+            : new CustomizationForm
+            {
+                IsEnabled = c.IsEnabled,
+                Kind = c.Kind,
+                ModelUrl = c.ModelUrl ?? string.Empty,
+                BaseFee = c.BaseFee,
+                AdditionalPrintAreaFee = c.AdditionalPrintAreaFee,
+                MaxElementsPerArea = c.MaxElementsPerArea,
+                MinRecommendedDpi = c.MinRecommendedDpi,
+                PrintAreas = c.PrintAreas.Select(a => new AreaRow { Key = a.Key, Name = a.Name, WidthMm = a.WidthMm, HeightMm = a.HeightMm, Shape = a.Shape }).ToList(),
+            };
+    }
+
+    private void SuggestSlug()
+    {
+        // Follow the name until the administrator types a slug of their own.
+        if (!IsNew || (_details.Slug.Length > 0 && _details.Slug != _autoSlug))
+        {
+            return;
+        }
+
+        var slug = new string(_details.Name.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray());
+        while (slug.Contains("--", StringComparison.Ordinal)) slug = slug.Replace("--", "-", StringComparison.Ordinal);
+        _details.Slug = _autoSlug = slug.Trim('-');
+    }
+
+    private async Task SaveDetailsAsync()
+    {
+        var request = new SaveProductRequest(_details.CategoryId, _details.Name, _details.Slug, _details.ShortDescription, _details.Description, _details.BasePrice,
+            !IsNew && _details.IsActive, _details.IsFeatured, _details.ProductionTimeDays,
+            _details.Specifications.Where(s => !string.IsNullOrWhiteSpace(s.Name) && !string.IsNullOrWhiteSpace(s.Value)).Select(s => new SpecificationItem(s.Name, s.Value)).ToList());
+
+        await SaveAsync(async () =>
+        {
+            if (IsNew)
+            {
+                var created = await Api.PostAsync<AdminProduct>("api/admin/products", request);
+                Toasts.Success("Product created. Add variants and a print area next.");
+                Navigation.NavigateTo($"admin/products/{created.Id}");
+            }
+            else
+            {
+                Load(await Api.PutAsync<AdminProduct>($"api/admin/products/{Id}", request));
+                Toasts.Success("Details saved.");
+            }
+        });
+    }
+
+    private void AddVariant() =>
+        _variants.Add(new VariantRow { Sku = $"{(_details.Slug.Length > 0 ? _details.Slug.ToUpperInvariant() : "SKU")}-{_variants.Count + 1}", ColorName = "White", ColorHex = "#FFFFFF", IsActive = true });
+
+    private Task SaveVariantsAsync() => SaveAsync(async () =>
+    {
+        Load(await Api.PutAsync<AdminProduct>($"api/admin/products/{Id}/variants",
+            new SaveVariantsRequest(_variants.Select(v => new SaveVariantItem(v.Id, v.Sku, v.ColorName, v.ColorHex, v.Size, v.PriceAdjustment, v.IsActive)).ToList())));
+        Toasts.Success("Variants saved.");
+    });
+
+    private Task SaveCustomizationAsync() => SaveAsync(async () =>
+    {
+        Load(await Api.PutAsync<AdminProduct>($"api/admin/products/{Id}/customization", new SaveCustomizationRequest(
+            _custom.IsEnabled, _custom.Kind, string.IsNullOrEmpty(_custom.ModelUrl) ? null : _custom.ModelUrl, _custom.BaseFee, _custom.AdditionalPrintAreaFee,
+            _custom.MaxElementsPerArea, _custom.MinRecommendedDpi,
+            _custom.PrintAreas.Select(a => new AdminPrintArea(a.Key.Trim().ToLowerInvariant(), a.Name, a.WidthMm, a.HeightMm, a.Shape)).ToList())));
+        Toasts.Success("Customization saved.");
+    });
+
+    private async Task UploadImageAsync(InputFileChangeEventArgs e)
+    {
+        await SaveAsync(async () =>
+        {
+            const long maxBytes = 8 * 1024 * 1024;
+            await using var stream = e.File.OpenReadStream(maxBytes);
+            using var content = new MultipartFormDataContent();
+            var file = new StreamContent(stream);
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(e.File.ContentType);
+            content.Add(file, "file", e.File.Name);
+            content.Add(new StringContent(_product!.Name), "altText");
+            Load(await Api.PostAsync<AdminProduct>($"api/admin/products/{Id}/images", content));
+            Toasts.Success("Photo uploaded.");
+        });
+    }
+
+    private Task RemoveImageAsync(AdminImage image) => SaveAsync(async () =>
+    {
+        Load(await Api.DeleteAsync<AdminProduct>($"api/admin/products/{Id}/images/{image.Id}"));
+        Toasts.Success("Photo removed.");
+    });
+
+    private async Task SaveAsync(Func<Task> action)
+    {
+        _saving = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (ApiException e)
+        {
+            _error = e;
+        }
+        catch (IOException)
+        {
+            Toasts.Error("That file is too large. Photos can be up to 8 MB.");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private sealed class DetailsForm
+    {
+        public Guid CategoryId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Slug { get; set; } = string.Empty;
+        public string? ShortDescription { get; set; }
+        public string? Description { get; set; }
+        public decimal BasePrice { get; set; }
+        public bool IsActive { get; set; }
+        public bool IsFeatured { get; set; }
+        public int ProductionTimeDays { get; set; }
+        public List<SpecRow> Specifications { get; set; } = [];
+    }
+
+    private sealed class SpecRow
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+    }
+
+    private sealed class VariantRow
+    {
+        public Guid? Id { get; set; }
+        public string Sku { get; set; } = string.Empty;
+        public string ColorName { get; set; } = string.Empty;
+        public string ColorHex { get; set; } = "#FFFFFF";
+        public string? Size { get; set; }
+        public decimal PriceAdjustment { get; set; }
+        public bool IsActive { get; set; } = true;
+    }
+
+    private sealed class CustomizationForm
+    {
+        public bool IsEnabled { get; set; } = true;
+        public string Kind { get; set; } = "Apparel";
+        public string ModelUrl { get; set; } = string.Empty;
+        public decimal BaseFee { get; set; } = 5;
+        public decimal AdditionalPrintAreaFee { get; set; }
+        public int MaxElementsPerArea { get; set; } = 10;
+        public int MinRecommendedDpi { get; set; } = 150;
+        public List<AreaRow> PrintAreas { get; set; } = [new AreaRow()];
+    }
+
+    private sealed class AreaRow
+    {
+        public string Key { get; set; } = "front";
+        public string Name { get; set; } = "Front";
+        public decimal WidthMm { get; set; } = 200;
+        public decimal HeightMm { get; set; } = 200;
+        public string Shape { get; set; } = "Rectangle";
+    }
+}

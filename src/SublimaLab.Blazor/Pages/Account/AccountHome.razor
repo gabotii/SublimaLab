@@ -1,0 +1,135 @@
+@page "/account"
+@attribute [Authorize]
+@inject ApiClient Api
+@inject AuthService Auth
+@inject CartState CartState
+@inject NavigationManager Navigation
+@inject ToastService Toasts
+
+<PageTitle>My account — SublimaLab</PageTitle>
+
+<div class="container">
+    <header class="page-header row row--between">
+        <div>
+            <h1 style="margin-bottom:var(--space-1)">Hi, @Auth.CurrentUser?.FirstName</h1>
+            <p class="text-muted" style="margin:0">@Auth.CurrentUser?.Email</p>
+        </div>
+        <button type="button" class="btn btn--secondary" @onclick="LogoutAsync"><Icon Name="logout" /> Sign out</button>
+    </header>
+
+    <div class="tabs" role="tablist" aria-label="Account sections">
+        @foreach (var (key, label) in Tabs)
+        {
+            <button type="button" role="tab" id="tab-@key" class="tab" aria-selected="@((CurrentTab == key).ToString().ToLowerInvariant())"
+                    aria-controls="panel-@key" tabindex="@(CurrentTab == key ? 0 : -1)" @onclick="() => SelectTab(key)">
+                @label
+            </button>
+        }
+    </div>
+
+    <div role="tabpanel" id="panel-@CurrentTab" aria-labelledby="tab-@CurrentTab">
+        @switch (CurrentTab)
+        {
+            case "designs":
+                <SavedDesigns />
+                break;
+            case "addresses":
+                <AddressBook />
+                break;
+            case "profile":
+                <ProfileSettings />
+                <div style="margin-top:var(--space-4)"><TwoFactorSettings /></div>
+                break;
+            default:
+                @if (_ordersError is not null)
+                {
+                    <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_ordersError</p></div>
+                }
+                else if (_orders is null)
+                {
+                    <div class="stack" aria-busy="true">
+                        <div class="skeleton" style="height:88px"></div>
+                        <div class="skeleton" style="height:88px"></div>
+                    </div>
+                }
+                else if (_orders.Items.Count == 0)
+                {
+                    <div class="empty-state">
+                        <Icon Name="package" Class="empty-state__icon" />
+                        <h2>No orders yet</h2>
+                        <p>When you place an order, you'll be able to follow it here from production to your door.</p>
+                        <a class="btn btn--primary" href="shop">Start shopping</a>
+                    </div>
+                }
+                else
+                {
+                    <ul class="order-list">
+                        @foreach (var order in _orders.Items)
+                        {
+                            <li>
+                                <a class="card order-row" href="account/orders/@order.Id">
+                                    <span class="cart-line__media" style="width:56px;height:56px" aria-hidden="true">
+                                        <ProductArt Kind="@ArtFromImage(order.FirstItemImageUrl)" Color="#FFFFFF" />
+                                    </span>
+                                    <span>
+                                        <strong>@order.OrderNumber</strong>
+                                        <span class="order-row__meta"><br />@Format.Date(order.PlacedAt) · @order.ItemCount @(order.ItemCount == 1 ? "item" : "items") · @Format.Money(order.Total, order.Currency)</span>
+                                    </span>
+                                    <span class="badge badge--@Format.StatusTone(order.Status)">@Format.Status(order.Status)</span>
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                }
+                break;
+        }
+    </div>
+</div>
+
+@code {
+    private static readonly (string Key, string Label)[] Tabs = [("orders", "Orders"), ("designs", "Designs"), ("addresses", "Addresses"), ("profile", "Profile & security")];
+
+    [SupplyParameterFromQuery] public string? Tab { get; set; }
+
+    private PagedResult<OrderSummary>? _orders;
+    private string? _ordersError;
+
+    private string CurrentTab => Tabs.Any(t => t.Key == Tab) ? Tab! : "orders";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (CurrentTab == "orders" && _orders is null)
+        {
+            try
+            {
+                _orders = await Api.GetAsync<PagedResult<OrderSummary>>("api/orders?pageSize=20");
+            }
+            catch (Exception e) when (e is ApiException or HttpRequestException)
+            {
+                _ordersError = "We couldn't load your orders. Please refresh to try again.";
+            }
+        }
+    }
+
+    private void SelectTab(string key) =>
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("tab", key == "orders" ? null : key), replace: true);
+
+    private async Task LogoutAsync()
+    {
+        try
+        {
+            await Auth.LogoutAsync();
+            await CartState.ReloadAsync();
+            Toasts.Info("You've been signed out.");
+            Navigation.NavigateTo("");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+    }
+
+    // Order summaries carry the first item's image URL (/images/products/{slug}.svg).
+    private static string ArtFromImage(string? imageUrl) =>
+        ArtKind.FromProductSlug(imageUrl is null ? null : Path.GetFileNameWithoutExtension(imageUrl));
+}

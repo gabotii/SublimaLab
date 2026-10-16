@@ -1,0 +1,27 @@
+@page "/contact"
+
+<LegalPage Title="Contact us" ShowUpdated="false">
+    <p>We're happy to help with orders, designs and anything else. Include your order number if your question is about an order.</p>
+
+    <div class="contact-grid">
+        <section class="card panel">
+            <h2><Icon Name="mail" /> Email</h2>
+            <p><a href="mailto:@StoreInfo.SupportEmail">@StoreInfo.SupportEmail</a></p>
+            <p class="text-muted text-sm">We usually reply within one business day.</p>
+        </section>
+        <section class="card panel">
+            <h2><Icon Name="clock" /> Phone</h2>
+            <p>@StoreInfo.Phone</p>
+            <p class="text-muted text-sm">@StoreInfo.SupportHours</p>
+        </section>
+        <section class="card panel">
+            <h2><Icon Name="package" /> Your orders</h2>
+            <p>Track an order, see its timeline or cancel it while payment is pending.</p>
+            <a class="btn btn--secondary btn--sm" href="account">Go to my orders</a>
+        </section>
+    </div>
+
+    <h2>Company details</h2>
+    <p>@StoreInfo.LegalName<br />@StoreInfo.Address<br />Registration: @StoreInfo.RegistrationNumber</p>
+    <p>See also our <a href="shipping-returns">Shipping &amp; returns</a>, <a href="terms">Terms of service</a> and <a href="privacy">Privacy policy</a>.</p>
+</LegalPage>

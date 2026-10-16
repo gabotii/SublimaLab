@@ -1,0 +1,294 @@
+@page "/account/orders/{Id:guid}"
+@attribute [Authorize]
+@inject ApiClient Api
+@inject ToastService Toasts
+
+<PageTitle>@(_order is null ? "Order" : $"Order {_order.OrderNumber}") — SublimaLab</PageTitle>
+
+<div class="container">
+    @if (_notFound)
+    {
+        <div class="section">
+            <div class="empty-state">
+                <Icon Name="package" Class="empty-state__icon" />
+                <h1>Order not found</h1>
+                <p>We couldn't find this order in your account.</p>
+                <a class="btn btn--primary" href="account?tab=orders">View my orders</a>
+            </div>
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div class="section"><div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_error</p></div></div>
+    }
+    else if (_order is null)
+    {
+        <div class="page-loading" role="status"><span class="spinner"></span><span class="visually-hidden">Loading order…</span></div>
+    }
+    else
+    {
+        <header class="page-header">
+            <nav class="breadcrumbs" aria-label="Breadcrumb">
+                <ol>
+                    <li><a href="account">My account</a></li>
+                    <li><a href="account?tab=orders">Orders</a></li>
+                    <li aria-current="page">@_order.OrderNumber</li>
+                </ol>
+            </nav>
+
+            @if (Placed && _order.Status != OrderStatus.Cancelled)
+            {
+                <div class="confirmation" role="status">
+                    <div class="confirmation__icon"><Icon Name="check" /></div>
+                    <h1>Thank you! Your order is confirmed.</h1>
+                    <p>Order <strong>@_order.OrderNumber</strong> is paid and heading to production. We've sent the details to <strong>@_order.Contact.Email</strong>.</p>
+                    <a class="btn btn--secondary" href="shop">Keep shopping</a>
+                </div>
+            }
+            else
+            {
+                <div class="row row--between">
+                    <h1 style="margin:0">Order @_order.OrderNumber</h1>
+                    <span class="badge badge--@Format.StatusTone(_order.Status)">@Format.Status(_order.Status)</span>
+                </div>
+                <p class="text-muted">Placed on @Format.DateAndTime(_order.PlacedAt)</p>
+            }
+        </header>
+
+        <div class="layout-with-summary">
+            <div class="stack">
+                @if (_order.CanPay)
+                {
+                    <div class="alert alert--warning" role="status">
+                        <Icon Name="clock" />
+                        <div>
+                            <p><strong>This order is waiting for payment.</strong> Complete it to send your items to production.</p>
+                            <div class="row" style="margin-top:var(--space-2)">
+                                <button type="button" class="btn btn--primary btn--sm" @onclick="PayAsync" disabled="@_busy">Pay @Format.Money(_order.Total, _order.Currency) (test card)</button>
+                                <button type="button" class="btn btn--ghost btn--sm" @onclick="() => _confirmCancel = true" disabled="@_busy">Cancel order</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <section class="card panel" aria-labelledby="tracking-title">
+                    <div class="panel__header"><h2 id="tracking-title">Order tracking</h2></div>
+                    <ol class="timeline">
+                        @foreach (var step in Timeline)
+                        {
+                            <li class="@step.Css">
+                                <span class="timeline__dot">
+                                    @if (step.Css == "cancelled")
+                                    {
+                                        <Icon Name="close" />
+                                    }
+                                    else if (step.Css == "done")
+                                    {
+                                        <Icon Name="check" />
+                                    }
+                                </span>
+                                <div>
+                                    <div class="timeline__title">@step.Title</div>
+                                    <div class="timeline__meta">@step.Meta</div>
+                                </div>
+                            </li>
+                        }
+                    </ol>
+                    @if (_order.Shipment is { } shipment)
+                    {
+                        <div class="alert alert--info"><Icon Name="truck" /><p>Shipped with <strong>@shipment.Carrier</strong> · Tracking number <strong>@shipment.TrackingNumber</strong></p></div>
+                    }
+                </section>
+
+                <section class="card panel" aria-labelledby="items-title">
+                    <div class="panel__header"><h2 id="items-title">Items</h2></div>
+                    <ul class="cart-lines">
+                        @foreach (var item in _order.Items)
+                        {
+                            <li class="cart-line" style="padding:0" @key="item.Id">
+                                <span class="cart-line__media" aria-hidden="true">
+                                    @if (item.PreviewUrl is not null)
+                                    {
+                                        <img src="@item.PreviewUrl" alt="" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <ProductArt Kind="@ArtKind.FromSku(item.Sku)" Color="@item.ColorHex" />
+                                    }
+                                </span>
+                                <div>
+                                    <h3 class="cart-line__title">@item.ProductName</h3>
+                                    <p class="cart-line__meta">
+                                        <span>@item.VariantLabel</span>
+                                        <span>Qty @item.Quantity</span>
+                                        @if (item.IsCustomized)
+                                        {
+                                            <span class="badge badge--brand">Your design</span>
+                                        }
+                                    </p>
+                                    <p class="cart-line__meta">SKU @item.Sku</p>
+                                </div>
+                                <div class="cart-line__price">
+                                    @Format.Money(item.LineTotal, _order.Currency)
+                                    <small>@item.Quantity × @Format.Money(item.UnitPrice + item.CustomizationPrice, _order.Currency)</small>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                </section>
+            </div>
+
+            <aside class="stack">
+                <div class="card summary">
+                    <h2>Summary</h2>
+                    <div class="summary__rows">
+                        <div class="summary__row"><span>Subtotal</span><span>@Format.Money(_order.Subtotal, _order.Currency)</span></div>
+                        @if (_order.Discount > 0)
+                        {
+                            <div class="summary__row summary__row--discount"><span>Discount (@_order.DiscountCode)</span><span>−@Format.Money(_order.Discount, _order.Currency)</span></div>
+                        }
+                        <div class="summary__row"><span>@_order.ShippingMethodName</span><span>@(_order.Shipping == 0 ? "Free" : Format.Money(_order.Shipping, _order.Currency))</span></div>
+                        <div class="summary__row"><span>Tax</span><span>@Format.Money(_order.Tax, _order.Currency)</span></div>
+                    </div>
+                    <div class="summary__total"><span>Total</span><span>@Format.Money(_order.Total, _order.Currency)</span></div>
+                    <p class="summary__note">Payment: @PaymentSummary</p>
+                </div>
+                <div class="card panel review-block">
+                    <h3>Shipping to</h3>
+                    <p>
+                        @_order.Contact.FullName<br />
+                        @_order.ShippingAddress.Line1@(_order.ShippingAddress.Line2 is null ? null : $", {_order.ShippingAddress.Line2}")<br />
+                        @_order.ShippingAddress.City, @_order.ShippingAddress.Region @_order.ShippingAddress.PostalCode, @_order.ShippingAddress.Country
+                    </p>
+                    <h3>Contact</h3>
+                    <p style="margin:0">@_order.Contact.Email<br />@_order.Contact.Phone</p>
+                </div>
+            </aside>
+        </div>
+    }
+</div>
+
+<ConfirmDialog Open="_confirmCancel" Title="Cancel this order?" Danger="true" ConfirmText="Cancel order" CancelText="Keep order"
+               Message="Your order will be cancelled and won't be produced. This can't be undone."
+               OnConfirm="CancelOrderAsync" OnCancel="() => _confirmCancel = false" />
+
+@code {
+    private sealed record TimelineStep(string Title, string Meta, string? Css);
+
+    private static readonly OrderStatus[] Lifecycle =
+        [OrderStatus.Pending, OrderStatus.Paid, OrderStatus.InProduction, OrderStatus.ReadyToShip, OrderStatus.Shipped, OrderStatus.Delivered];
+
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery] public bool Placed { get; set; }
+
+    private Order? _order;
+    private bool _notFound;
+    private string? _error;
+    private bool _busy;
+    private bool _confirmCancel;
+
+    private string PaymentSummary
+    {
+        get
+        {
+            var last = _order?.Payments.OrderByDescending(p => p.CreatedAt).FirstOrDefault();
+            return last is null ? "not started" : last.Status switch
+            {
+                PaymentStatus.Succeeded => $"paid on {Format.Date(last.CreatedAt)}",
+                PaymentStatus.Failed => $"declined ({last.FailureReason})",
+                _ => last.Status.ToString().ToLowerInvariant(),
+            };
+        }
+    }
+
+    /// <summary>The full lifecycle, with completed steps dated from the order's history.</summary>
+    private IEnumerable<TimelineStep> Timeline
+    {
+        get
+        {
+            var history = _order!.Timeline;
+            if (_order.Status == OrderStatus.Cancelled)
+            {
+                foreach (var entry in history)
+                {
+                    yield return new(Format.Status(entry.Status), $"{Format.DateAndTime(entry.ChangedAt)}{(entry.Note is null ? null : " · " + entry.Note)}",
+                        entry.Status == OrderStatus.Cancelled ? "cancelled" : "done");
+                }
+
+                yield break;
+            }
+
+            foreach (var status in Lifecycle)
+            {
+                var reached = history.LastOrDefault(h => h.Status == status);
+                var title = status == OrderStatus.Pending ? "Order placed" : Format.Status(status);
+                yield return reached is null
+                    ? new(title, "Pending", null)
+                    : new(title, Format.DateAndTime(reached.ChangedAt), "done");
+            }
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _order = await Api.GetAsync<Order>($"api/orders/{Id}");
+        }
+        catch (ApiException e) when (e.Status == System.Net.HttpStatusCode.NotFound)
+        {
+            _notFound = true;
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _error = "We couldn't load this order. Please refresh to try again.";
+        }
+    }
+
+    private async Task PayAsync()
+    {
+        _busy = true;
+        try
+        {
+            var payment = await Api.PostAsync<Payment>("api/payments", new CreatePaymentRequest(Id));
+            var outcome = await Api.PostAsync<PaymentOutcome>($"api/payments/{payment.Id}/confirm", new ConfirmPaymentRequest("tok_test_success"));
+            if (outcome.OrderStatus == OrderStatus.Paid)
+            {
+                Toasts.Success("Payment received. Your order is going to production!");
+            }
+            else
+            {
+                Toasts.Error(outcome.Payment.FailureReason ?? "The payment was not approved.");
+            }
+
+            _order = await Api.GetAsync<Order>($"api/orders/{Id}");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CancelOrderAsync()
+    {
+        _confirmCancel = false;
+        _busy = true;
+        try
+        {
+            _order = await Api.PostAsync<Order>($"api/orders/{Id}/cancel");
+            Toasts.Success("Your order was cancelled.");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

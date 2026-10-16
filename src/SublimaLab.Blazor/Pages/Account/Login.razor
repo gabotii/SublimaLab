@@ -1,0 +1,238 @@
+@page "/account/login"
+@inject AuthService Auth
+@inject CartState CartState
+@inject ApiClient Api
+@inject NavigationManager Navigation
+@inject ToastService Toasts
+
+<PageTitle>Sign in — SublimaLab</PageTitle>
+
+<div class="container auth">
+    <div class="card auth__card">
+        @if (_codeStep)
+        {
+            <h1>Two-step verification</h1>
+            <p class="text-muted">
+                @(_useRecoveryCode
+                    ? "Enter one of the recovery codes you saved when you set up two-step verification. Each code works once."
+                    : "Open your authenticator app and enter the 6-digit code for SublimaLab.")
+            </p>
+
+            <form class="form-grid" @onsubmit="SubmitCodeAsync" @onsubmit:preventDefault="true">
+                @if (!CodeRejected)
+                {
+                    <ServerErrors Error="_error" />
+                }
+                <div class="field">
+                    <label class="field__label" for="login-code">@(_useRecoveryCode ? "Recovery code" : "Authentication code")</label>
+                    <input id="login-code" class="input input--code" @ref="_codeInput" @bind="_code" @bind:event="oninput"
+                           autocomplete="one-time-code" inputmode="@(_useRecoveryCode ? "text" : "numeric")"
+                           maxlength="@(_useRecoveryCode ? 24 : 7)" spellcheck="false" aria-describedby="login-code-error" />
+                    <span id="login-code-error"><FieldError Error="_error" Field="code" /></span>
+                </div>
+                <button type="submit" class="btn btn--primary btn--lg btn--block" disabled="@(_submitting || string.IsNullOrWhiteSpace(_code))">
+                    @if (_submitting)
+                    {
+                        <span class="btn__spinner" aria-hidden="true"></span>
+                    }
+                    Verify and sign in
+                </button>
+            </form>
+
+            <div class="row row--between" style="margin-top:var(--space-4)">
+                <button type="button" class="btn btn--ghost btn--sm" @onclick="ToggleRecoveryCode">
+                    @(_useRecoveryCode ? "Use my authenticator app" : "Use a recovery code")
+                </button>
+                <button type="button" class="btn btn--ghost btn--sm" @onclick="BackToPassword">Back</button>
+            </div>
+        }
+        else
+        {
+            <h1>Welcome back</h1>
+            <p class="text-muted">Sign in to check out, track orders and save your designs.</p>
+
+            <EditForm Model="_model" OnValidSubmit="SubmitAsync" FormName="login" class="form-grid">
+                <DataAnnotationsValidator />
+
+                @if (_error is not null)
+                {
+                    <ServerErrors Error="_error">
+                        @if (_error.Code == "EMAIL_NOT_CONFIRMED")
+                        {
+                            <button type="button" class="btn btn--sm btn--secondary" style="margin-top:8px" @onclick="ResendConfirmationAsync" disabled="@_resent">
+                                @(_resent ? "Confirmation email sent" : "Resend confirmation email")
+                            </button>
+                        }
+                    </ServerErrors>
+                }
+
+                <div class="field">
+                    <label class="field__label" for="login-email">Email</label>
+                    <InputText id="login-email" class="input" type="email" autocomplete="email" @bind-Value="_model.Email" />
+                    <ValidationMessage For="() => _model.Email" />
+                </div>
+                <div class="field">
+                    <div class="row row--between">
+                        <label class="field__label" for="login-password">Password</label>
+                        <a href="account/forgot-password" class="text-sm">Forgot password?</a>
+                    </div>
+                    <InputText id="login-password" class="input" type="password" autocomplete="current-password" @bind-Value="_model.Password" />
+                    <ValidationMessage For="() => _model.Password" />
+                </div>
+                <label class="checkbox">
+                    <InputCheckbox @bind-Value="_model.RememberMe" /> Keep me signed in
+                </label>
+                <button type="submit" class="btn btn--primary btn--lg btn--block" disabled="@_submitting">
+                    @if (_submitting)
+                    {
+                        <span class="btn__spinner" aria-hidden="true"></span>
+                    }
+                    Sign in
+                </button>
+            </EditForm>
+        }
+
+        @if (!_codeStep)
+        {
+            <p class="auth__footer">New to SublimaLab? <a href="@($"account/register{ReturnQuery}")">Create an account</a></p>
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private readonly LoginModel _model = new();
+    private ApiException? _error;
+    private bool _submitting;
+    private bool _resent;
+    private bool _codeStep;
+    private bool _useRecoveryCode;
+    private bool _focusCode;
+    private string _code = string.Empty;
+    private ElementReference _codeInput;
+
+    /// <summary>A wrong code is shown next to the input only, without the generic summary.</summary>
+    private bool CodeRejected => _error?.FieldErrors.Keys.Any(k => FieldError.Matches(k, "code")) == true;
+
+    private string ReturnQuery => SafeReturnUrl is "/" ? string.Empty : $"?returnUrl={Uri.EscapeDataString(SafeReturnUrl)}";
+
+    /// <summary>Only same-site relative paths are allowed, preventing open redirects.</summary>
+    private string SafeReturnUrl =>
+        ReturnUrl is { Length: > 0 } url && url.StartsWith('/') && !url.StartsWith("//", StringComparison.Ordinal) && !url.StartsWith("/\\", StringComparison.Ordinal)
+            ? url
+            : "/";
+
+    private async Task SubmitAsync()
+    {
+        _submitting = true;
+        _error = null;
+        try
+        {
+            var user = await Auth.LoginAsync(_model.Email.Trim(), _model.Password, _model.RememberMe);
+            if (user is null)
+            {
+                _codeStep = true;
+                _focusCode = true;
+                return;
+            }
+
+            await CompleteAsync(user);
+        }
+        catch (ApiException e)
+        {
+            _error = e;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private async Task SubmitCodeAsync()
+    {
+        if (_submitting || string.IsNullOrWhiteSpace(_code))
+        {
+            return;
+        }
+
+        _submitting = true;
+        _error = null;
+        try
+        {
+            await CompleteAsync(await Auth.LoginTwoFactorAsync(_code.Trim(), _model.RememberMe, _useRecoveryCode));
+        }
+        catch (ApiException e) when (e.Code == "TWO_FACTOR_SESSION_EXPIRED")
+        {
+            BackToPassword();
+            _error = e;
+        }
+        catch (ApiException e)
+        {
+            _error = e;
+            _focusCode = true;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private async Task CompleteAsync(User user)
+    {
+        await CartState.ReloadAsync();
+        Toasts.Success($"Welcome back, {user.FirstName}!");
+        Navigation.NavigateTo(SafeReturnUrl.TrimStart('/'));
+    }
+
+    private void ToggleRecoveryCode()
+    {
+        _useRecoveryCode = !_useRecoveryCode;
+        _code = string.Empty;
+        _error = null;
+        _focusCode = true;
+    }
+
+    private void BackToPassword()
+    {
+        _codeStep = false;
+        _useRecoveryCode = false;
+        _code = string.Empty;
+        _model.Password = string.Empty;
+        _error = null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusCode && _codeStep)
+        {
+            _focusCode = false;
+            await _codeInput.FocusAsync();
+        }
+    }
+
+    private async Task ResendConfirmationAsync()
+    {
+        try
+        {
+            await Api.PostAsync("api/auth/resend-confirmation", new EmailRequest(_model.Email.Trim()));
+            _resent = true;
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+    }
+
+    private sealed class LoginModel
+    {
+        [Required(ErrorMessage = "Enter your email address.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email address.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter your password.")]
+        public string Password { get; set; } = string.Empty;
+
+        public bool RememberMe { get; set; }
+    }
+}

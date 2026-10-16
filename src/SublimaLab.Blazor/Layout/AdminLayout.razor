@@ -1,0 +1,30 @@
+@inherits LayoutComponentBase
+@layout MainLayout
+@inject AuthService Auth
+
+<div class="container admin">
+    <nav class="admin-nav" aria-label="Admin">
+        <p class="admin-nav__title">Admin</p>
+        <ul>
+            <li><NavLink href="admin" Match="NavLinkMatch.All"><Icon Name="layers" /> Dashboard</NavLink></li>
+            <li><NavLink href="admin/orders"><Icon Name="package" /> Orders</NavLink></li>
+            <li><NavLink href="admin/products"><Icon Name="palette" /> Products</NavLink></li>
+            <li><NavLink href="admin/customers"><Icon Name="user" /> Customers</NavLink></li>
+        </ul>
+    </nav>
+    <div class="admin-main">
+        @if (Auth.CurrentUser?.MustEnableTwoFactor == true)
+        {
+            @* The API refuses admin calls from sessions without a second factor; explain instead of failing. *@
+            <section class="card panel" aria-labelledby="mfa-required-title">
+                <h1 id="mfa-required-title" style="font-size:var(--text-2xl)"><Icon Name="shield" /> Turn on two-step verification</h1>
+                <p>Administrator accounts must sign in with a code from an authenticator app as well as a password. It takes about a minute to set up.</p>
+                <a class="btn btn--primary" href="account?tab=profile#two-factor">Set it up now</a>
+            </section>
+        }
+        else
+        {
+            @Body
+        }
+    </div>
+</div>

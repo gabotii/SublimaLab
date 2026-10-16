@@ -1,0 +1,222 @@
+@* Two-step verification (TOTP): set up with an authenticator app, recovery codes, turn off. *@
+@inject ApiClient Api
+@inject AuthService Auth
+@inject ToastService Toasts
+
+<section class="card panel" id="two-factor" aria-labelledby="two-factor-title">
+    <div class="panel__header">
+        <h2 id="two-factor-title">Two-step verification</h2>
+        @if (_status is not null)
+        {
+            <span class="badge @(_status.Enabled ? "badge--success" : "badge--warning")">@(_status.Enabled ? "On" : "Off")</span>
+        }
+    </div>
+
+    @if (_loadError is not null)
+    {
+        <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_loadError</p></div>
+    }
+    else if (_status is null)
+    {
+        <div class="skeleton" style="height:96px" aria-busy="true"></div>
+    }
+    else if (_recoveryCodes is not null)
+    {
+        <div class="alert alert--success" role="status">
+            <Icon Name="check" />
+            <p><strong>Save your recovery codes.</strong> If you lose your phone, each code lets you sign in once. They won't be shown again.</p>
+        </div>
+        <ul class="recovery-codes" aria-label="Recovery codes">
+            @foreach (var recoveryCode in _recoveryCodes)
+            {
+                <li><code>@recoveryCode</code></li>
+            }
+        </ul>
+        <p class="field__hint">Write them down or store them in a password manager, somewhere other than your phone.</p>
+        <button type="button" class="btn btn--primary" @onclick="DismissCodes">I've saved my codes</button>
+    }
+    else if (_setup is not null)
+    {
+        <ol class="setup-steps">
+            <li>
+                <p>Scan this QR code with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, Authy…).</p>
+                <div class="qr" role="img" aria-label="QR code for your authenticator app">@((MarkupString)_setup.QrCodeSvg)</div>
+                <p class="field__hint">Can't scan it? Enter this key manually: <code class="setup-key">@_setup.SharedKey</code></p>
+            </li>
+            <li>
+                <form class="form-grid" @onsubmit="EnableAsync" @onsubmit:preventDefault="true">
+                    <div class="field">
+                        <label class="field__label" for="tf-enable-code">Enter the 6-digit code the app shows</label>
+                        <input id="tf-enable-code" class="input input--code" @bind="_code" @bind:event="oninput"
+                               autocomplete="one-time-code" inputmode="numeric" maxlength="7" spellcheck="false" />
+                        <FieldError Error="_error" Field="code" />
+                    </div>
+                    <div class="row" style="gap:var(--space-3)">
+                        <button type="submit" class="btn btn--primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))">Turn on</button>
+                        <button type="button" class="btn btn--secondary" @onclick="CancelSetup">Cancel</button>
+                    </div>
+                </form>
+            </li>
+        </ol>
+    }
+    else if (_status.Enabled)
+    {
+        <p>When you sign in, we'll ask for a code from your authenticator app as well as your password.</p>
+        <p class="text-sm @(_status.RecoveryCodesLeft <= 3 ? "text-danger" : "text-muted")">
+            @_status.RecoveryCodesLeft recovery @(_status.RecoveryCodesLeft == 1 ? "code" : "codes") left.
+        </p>
+
+        @if (_action is null)
+        {
+            <div class="row" style="gap:var(--space-3);flex-wrap:wrap">
+                <button type="button" class="btn btn--secondary" @onclick="@(() => StartAction(TwoFactorAction.Regenerate))">New recovery codes</button>
+                @if (!_status.Required)
+                {
+                    <button type="button" class="btn btn--danger" @onclick="@(() => StartAction(TwoFactorAction.Disable))">Turn off</button>
+                }
+            </div>
+            @if (_status.Required)
+            {
+                <p class="field__hint" style="margin-top:var(--space-3)">Administrator accounts must keep two-step verification on.</p>
+            }
+        }
+        else
+        {
+            <form class="form-grid" @onsubmit="ConfirmActionAsync" @onsubmit:preventDefault="true">
+                <div class="field">
+                    <label class="field__label" for="tf-action-code">
+                        @(_action == TwoFactorAction.Disable ? "Enter a code from your app (or a recovery code) to turn it off" : "Enter a code from your app to create new recovery codes")
+                    </label>
+                    <input id="tf-action-code" class="input input--code" @bind="_code" @bind:event="oninput"
+                           autocomplete="one-time-code" maxlength="24" spellcheck="false" />
+                    <FieldError Error="_error" Field="code" />
+                </div>
+                <div class="row" style="gap:var(--space-3)">
+                    <button type="submit" class="btn @(_action == TwoFactorAction.Disable ? "btn--danger" : "btn--primary")" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))">
+                        @(_action == TwoFactorAction.Disable ? "Turn off" : "Create new codes")
+                    </button>
+                    <button type="button" class="btn btn--secondary" @onclick="CancelAction">Cancel</button>
+                </div>
+            </form>
+        }
+    }
+    else
+    {
+        @if (_status.Required)
+        {
+            <div class="alert alert--warning" role="alert">
+                <Icon Name="shield" />
+                <p><strong>Required for administrators.</strong> Turn on two-step verification to use the admin dashboard.</p>
+            </div>
+        }
+        <p>Protect your account with a code from an authenticator app on your phone, in addition to your password.</p>
+        <button type="button" class="btn btn--primary" @onclick="BeginSetupAsync" disabled="@_busy"><Icon Name="shield" /> Set up two-step verification</button>
+    }
+
+    @if (_error is not null && !CodeRejected)
+    {
+        <ServerErrors Error="_error" />
+    }
+</section>
+
+@code {
+    private enum TwoFactorAction { Disable, Regenerate }
+
+    private TwoFactorStatus? _status;
+    private TwoFactorSetup? _setup;
+    private IReadOnlyList<string>? _recoveryCodes;
+    private TwoFactorAction? _action;
+    private string _code = string.Empty;
+    private ApiException? _error;
+    private string? _loadError;
+    private bool _busy;
+
+    private bool CodeRejected => _error?.FieldErrors.Keys.Any(k => FieldError.Matches(k, "code")) == true;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _status = await Api.GetAsync<TwoFactorStatus>("api/account/two-factor");
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _loadError = "We couldn't load your security settings. Please refresh to try again.";
+        }
+    }
+
+    private Task BeginSetupAsync() => RunAsync(async () =>
+    {
+        _setup = await Api.PostAsync<TwoFactorSetup>("api/account/two-factor/setup");
+    });
+
+    private Task EnableAsync() => RunAsync(async () =>
+    {
+        var result = await Api.PostAsync<RecoveryCodeList>("api/account/two-factor/enable", new TwoFactorCodeRequest(_code.Trim()));
+        _setup = null;
+        _recoveryCodes = result.RecoveryCodes;
+        await LoadAsync();
+        await Auth.RefreshAsync();
+        Toasts.Success("Two-step verification is on.");
+    });
+
+    private Task ConfirmActionAsync() => RunAsync(async () =>
+    {
+        if (_action == TwoFactorAction.Disable)
+        {
+            await Api.PostAsync("api/account/two-factor/disable", new TwoFactorCodeRequest(_code.Trim()));
+            Toasts.Info("Two-step verification is off.");
+            await Auth.RefreshAsync();
+        }
+        else
+        {
+            _recoveryCodes = (await Api.PostAsync<RecoveryCodeList>("api/account/two-factor/recovery-codes", new TwoFactorCodeRequest(_code.Trim()))).RecoveryCodes;
+        }
+
+        _action = null;
+        await LoadAsync();
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+            _code = string.Empty;
+        }
+        catch (ApiException e)
+        {
+            _error = e;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void StartAction(TwoFactorAction action)
+    {
+        _action = action;
+        _code = string.Empty;
+        _error = null;
+    }
+
+    private void CancelAction()
+    {
+        _action = null;
+        _error = null;
+    }
+
+    private void CancelSetup()
+    {
+        _setup = null;
+        _code = string.Empty;
+        _error = null;
+    }
+
+    private void DismissCodes() => _recoveryCodes = null;
+}

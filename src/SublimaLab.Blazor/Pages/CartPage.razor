@@ -1,0 +1,290 @@
+@page "/cart"
+@implements IDisposable
+@inject CartState CartState
+@inject CatalogCache Catalog
+@inject ToastService Toasts
+
+<PageTitle>Your cart — SublimaLab</PageTitle>
+
+<div class="container">
+    <header class="page-header">
+        <h1>Your cart</h1>
+    </header>
+
+    @if (!CartState.IsLoaded && _loadError is null)
+    {
+        <div class="layout-with-summary" aria-busy="true">
+            <div class="stack">
+                <div class="skeleton" style="height:128px"></div>
+                <div class="skeleton" style="height:128px"></div>
+            </div>
+            <div class="skeleton" style="height:320px"></div>
+        </div>
+    }
+    else if (_loadError is not null)
+    {
+        <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_loadError</p></div>
+    }
+    else if (Cart.Items.Count == 0)
+    {
+        <div class="empty-state">
+            <Icon Name="cart" Class="empty-state__icon" />
+            <h2>Your cart is empty</h2>
+            <p>Find a T-shirt, mug or keychain you love and make it yours.</p>
+            <div class="row" style="justify-content:center">
+                <a class="btn btn--primary" href="shop?customizable=true"><Icon Name="sparkles" /> Create your design</a>
+                <a class="btn btn--secondary" href="shop">Browse products</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="layout-with-summary">
+            <section aria-labelledby="cart-items-title">
+                <h2 id="cart-items-title" class="visually-hidden">Items in your cart</h2>
+                <ul class="cart-lines">
+                    @foreach (var line in Cart.Items)
+                    {
+                        <li class="card cart-line @(line.IsAvailable ? null : "cart-line--unavailable")" @key="line.Id">
+                            <a class="cart-line__media" href="products/@line.ProductSlug" tabindex="-1" aria-hidden="true">
+                                @if (line.PreviewUrl is not null)
+                                {
+                                    <img src="@line.PreviewUrl" alt="" loading="lazy" />
+                                }
+                                else
+                                {
+                                    <ProductVisual ImageUrl="@line.ImageUrl" Kind="@ArtKind.FromProductSlug(line.ProductSlug)" Color="@line.Variant?.ColorHex" />
+                                }
+                            </a>
+                            <div>
+                                <h3 class="cart-line__title"><a href="products/@line.ProductSlug">@line.ProductName</a></h3>
+                                <p class="cart-line__meta">
+                                    @if (line.Variant is not null)
+                                    {
+                                        <span>@line.Variant.Label</span>
+                                    }
+                                    @if (line.IsCustomized)
+                                    {
+                                        <span class="badge badge--brand">Your design</span>
+                                        @if (line.IsAvailable)
+                                        {
+                                            <a href="@($"customize/{line.ProductSlug}?item={line.Id}")" aria-label="Edit design for @line.ProductName">Edit design</a>
+                                        }
+                                    }
+                                </p>
+                                <p class="cart-line__meta">
+                                    @Format.Money(line.UnitPrice, Cart.Currency) each
+                                    @if (line.CustomizationPrice > 0)
+                                    {
+                                        <span>+ @Format.Money(line.CustomizationPrice, Cart.Currency) design printing</span>
+                                    }
+                                </p>
+                                @if (!line.IsAvailable)
+                                {
+                                    <p class="field__error">@line.Issue</p>
+                                }
+                            </div>
+                            <div class="cart-line__controls">
+                                <div class="cart-line__price">
+                                    @Format.Money(line.LineTotal, Cart.Currency)
+                                    @if (line.Quantity > 1)
+                                    {
+                                        <small>@line.Quantity × @Format.Money(line.UnitPrice + line.CustomizationPrice, Cart.Currency)</small>
+                                    }
+                                </div>
+                                <div class="row">
+                                    @if (line.IsAvailable)
+                                    {
+                                        <QuantityStepper Value="line.Quantity" ValueChanged="q => UpdateQuantityAsync(line, q)" Small="true"
+                                                         Disabled="@(_busyLine == line.Id)" Label="@($"Quantity of {line.ProductName}")" />
+                                    }
+                                    <button type="button" class="icon-btn" aria-label="Remove @line.ProductName" title="Remove" @onclick="() => _pendingRemoval = line">
+                                        <Icon Name="trash" />
+                                    </button>
+                                </div>
+                            </div>
+                        </li>
+                    }
+                </ul>
+                <p style="margin-top:var(--space-4)"><a href="shop"><Icon Name="arrow-left" Class="inline-icon" /> Continue shopping</a></p>
+            </section>
+
+            <aside class="card summary" aria-labelledby="summary-title">
+                <h2 id="summary-title">Order summary</h2>
+
+                @if (_freeShippingThreshold is { } threshold && Cart.Totals.Subtotal - Cart.Totals.Discount < threshold)
+                {
+                    var remaining = threshold - (Cart.Totals.Subtotal - Cart.Totals.Discount);
+                    var percent = (int)Math.Clamp((Cart.Totals.Subtotal - Cart.Totals.Discount) / threshold * 100, 0, 100);
+                    <div class="free-shipping">
+                        <p>You're <strong>@Format.Money(remaining, Cart.Currency)</strong> away from free shipping.</p>
+                        <div class="progress" role="progressbar" aria-valuenow="@percent" aria-valuemin="0" aria-valuemax="100" aria-label="Progress to free shipping">
+                            <span style="width:@(percent)%"></span>
+                        </div>
+                    </div>
+                }
+                else if (_freeShippingThreshold is not null)
+                {
+                    <p class="alert alert--success"><Icon Name="truck" /> You've unlocked free standard shipping!</p>
+                }
+
+                <div class="summary__rows">
+                    <div class="summary__row"><span>Subtotal (@Cart.ItemCount @(Cart.ItemCount == 1 ? "item" : "items"))</span><span>@Format.Money(Cart.Totals.Subtotal, Cart.Currency)</span></div>
+                    @if (Cart.Totals.Discount > 0)
+                    {
+                        <div class="summary__row summary__row--discount"><span>Discount (@Cart.DiscountCode)</span><span>−@Format.Money(Cart.Totals.Discount, Cart.Currency)</span></div>
+                    }
+                    <div class="summary__row"><span>Shipping (standard estimate)</span><span>@(Cart.Totals.Shipping == 0 ? "Free" : Format.Money(Cart.Totals.Shipping, Cart.Currency))</span></div>
+                    <div class="summary__row"><span>Estimated tax</span><span>@Format.Money(Cart.Totals.Tax, Cart.Currency)</span></div>
+                </div>
+                <div class="summary__total"><span>Total</span><span>@Format.Money(Cart.Totals.Total, Cart.Currency)</span></div>
+
+                <div style="margin-top:var(--space-4)">
+                    @if (Cart.DiscountCode is not null && Cart.Totals.Discount > 0)
+                    {
+                        <div class="row row--between">
+                            <span class="badge badge--success"><Icon Name="check" Class="inline-icon" /> @Cart.DiscountCode applied</span>
+                            <button type="button" class="btn btn--ghost btn--sm" @onclick="RemoveDiscountAsync">Remove</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <form @onsubmit="ApplyDiscountAsync" @onsubmit:preventDefault>
+                            <label class="field__label" for="discount-code">Discount code</label>
+                            <div class="input-group" style="margin-top:6px">
+                                <input id="discount-code" class="input" @bind="_discountCode" @bind:event="oninput" placeholder="e.g. WELCOME10" maxlength="40" autocomplete="off"
+                                       aria-describedby="@(_discountError is null ? null : "discount-error")" />
+                                <button type="submit" class="btn btn--secondary" disabled="@(_applyingDiscount || string.IsNullOrWhiteSpace(_discountCode))">Apply</button>
+                            </div>
+                            @if (_discountError is not null)
+                            {
+                                <span id="discount-error" class="field__error" role="alert">@_discountError</span>
+                            }
+                        </form>
+                    }
+                </div>
+
+                <div style="margin-top:var(--space-5)">
+                    @if (Cart.CanCheckout)
+                    {
+                        <a class="btn btn--primary btn--lg btn--block" href="checkout"><Icon Name="lock" /> Checkout</a>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn--primary btn--lg btn--block" disabled>Checkout</button>
+                        <p class="field__error" style="margin-top:var(--space-2)">Remove unavailable items to continue.</p>
+                    }
+                </div>
+                <p class="summary__note"><Icon Name="shield" Class="inline-icon" /> Secure checkout · Prices include all customization</p>
+            </aside>
+        </div>
+    }
+</div>
+
+<ConfirmDialog Open="@(_pendingRemoval is not null)" Title="Remove item?" Danger="true" ConfirmText="Remove"
+               Message="@($"Remove {_pendingRemoval?.ProductName} from your cart?{(_pendingRemoval?.IsCustomized == true ? " Your design for this item will be lost." : string.Empty)}")"
+               OnConfirm="ConfirmRemoveAsync" OnCancel="() => _pendingRemoval = null" />
+
+@code {
+    private string? _loadError;
+    private Guid? _busyLine;
+    private CartLine? _pendingRemoval;
+    private string? _discountCode;
+    private string? _discountError;
+    private bool _applyingDiscount;
+    private decimal? _freeShippingThreshold;
+
+    private Cart Cart => CartState.Cart;
+
+    protected override async Task OnInitializedAsync()
+    {
+        CartState.Changed += OnCartChanged;
+        try
+        {
+            await CartState.RefreshAsync();
+            _freeShippingThreshold = await Catalog.GetFreeShippingThresholdAsync();
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _loadError = "We couldn't load your cart. Please refresh to try again.";
+        }
+    }
+
+    private async Task UpdateQuantityAsync(CartLine line, int quantity)
+    {
+        _busyLine = line.Id;
+        try
+        {
+            await CartState.UpdateQuantityAsync(line.Id, quantity);
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+        finally
+        {
+            _busyLine = null;
+        }
+    }
+
+    private async Task ConfirmRemoveAsync()
+    {
+        var line = _pendingRemoval;
+        _pendingRemoval = null;
+        if (line is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await CartState.RemoveAsync(line.Id);
+            Toasts.Success($"{line.ProductName} removed from your cart.");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+    }
+
+    private async Task ApplyDiscountAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_discountCode))
+        {
+            return;
+        }
+
+        _applyingDiscount = true;
+        _discountError = null;
+        try
+        {
+            await CartState.ApplyDiscountAsync(_discountCode.Trim());
+            Toasts.Success("Discount applied.");
+            _discountCode = null;
+        }
+        catch (ApiException e)
+        {
+            _discountError = e.FieldErrors.Values.SelectMany(v => v).FirstOrDefault() ?? e.Message;
+        }
+        finally
+        {
+            _applyingDiscount = false;
+        }
+    }
+
+    private async Task RemoveDiscountAsync()
+    {
+        try
+        {
+            await CartState.RemoveDiscountAsync();
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+    }
+
+    private void OnCartChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => CartState.Changed -= OnCartChanged;
+}

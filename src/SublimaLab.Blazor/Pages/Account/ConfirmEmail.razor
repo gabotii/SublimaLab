@@ -1,0 +1,60 @@
+@page "/account/confirm-email"
+@inject ApiClient Api
+
+<PageTitle>Confirm your email — SublimaLab</PageTitle>
+
+<div class="container auth">
+    <div class="card auth__card" role="status" aria-live="polite">
+        @if (_state == State.Working)
+        {
+            <div class="page-loading" style="padding:var(--space-5) 0"><span class="spinner"></span></div>
+            <h1 style="text-align:center">Confirming your email…</h1>
+        }
+        else if (_state == State.Done)
+        {
+            <div class="confirmation" style="margin-bottom:0">
+                <div class="confirmation__icon"><Icon Name="check" /></div>
+                <h1>Email confirmed</h1>
+                <p>Your SublimaLab account is ready. Sign in to start creating.</p>
+                <a class="btn btn--primary" href="account/login">Sign in</a>
+            </div>
+        }
+        else
+        {
+            <h1>This link didn't work</h1>
+            <div class="alert alert--error"><Icon Name="alert" /><p>@_message</p></div>
+            <p class="auth__footer">Try signing in: if your email still needs confirming, you can request a new link there.</p>
+            <a class="btn btn--primary btn--block" href="account/login">Go to sign in</a>
+        }
+    </div>
+</div>
+
+@code {
+    private enum State { Working, Done, Failed }
+
+    [SupplyParameterFromQuery] public string? UserId { get; set; }
+    [SupplyParameterFromQuery] public string? Token { get; set; }
+
+    private State _state = State.Working;
+    private string _message = "This confirmation link is invalid or has expired.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Guid.TryParse(UserId, out var userId) || string.IsNullOrWhiteSpace(Token))
+        {
+            _state = State.Failed;
+            return;
+        }
+
+        try
+        {
+            await Api.PostAsync("api/auth/confirm-email", new ConfirmEmailRequest(userId, Token));
+            _state = State.Done;
+        }
+        catch (ApiException e)
+        {
+            _message = e.Message;
+            _state = State.Failed;
+        }
+    }
+}

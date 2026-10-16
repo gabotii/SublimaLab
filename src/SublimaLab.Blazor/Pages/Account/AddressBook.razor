@@ -1,0 +1,200 @@
+@inject ApiClient Api
+@inject ToastService Toasts
+
+<section aria-labelledby="addresses-title">
+    <div class="section__header">
+        <h2 id="addresses-title" style="margin:0">Saved addresses</h2>
+        @if (!_showForm)
+        {
+            <button type="button" class="btn btn--secondary btn--sm" @onclick="() => _showForm = true">Add address</button>
+        }
+    </div>
+
+    @if (_showForm)
+    {
+        <div class="card panel" style="margin-bottom:var(--space-4)">
+            <EditForm Model="_model" OnValidSubmit="SaveAsync" FormName="address-book" class="form-grid">
+                <DataAnnotationsValidator />
+                <ServerErrors Error="_error" />
+                <div class="form-grid form-grid--2">
+                    <div class="field">
+                        <label class="field__label" for="ab-label">Label</label>
+                        <InputText id="ab-label" class="input" placeholder="Home, Work…" @bind-Value="_model.Label" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="ab-name">Recipient name</label>
+                        <InputText id="ab-name" class="input" autocomplete="name" @bind-Value="_model.RecipientName" />
+                        <ValidationMessage For="() => _model.RecipientName" />
+                    </div>
+                    <div class="field span-2">
+                        <label class="field__label" for="ab-line1">Street address</label>
+                        <InputText id="ab-line1" class="input" autocomplete="address-line1" @bind-Value="_model.Line1" />
+                        <ValidationMessage For="() => _model.Line1" />
+                    </div>
+                    <div class="field span-2">
+                        <label class="field__label" for="ab-line2">Apartment, suite, etc. <span class="text-muted">(optional)</span></label>
+                        <InputText id="ab-line2" class="input" autocomplete="address-line2" @bind-Value="_model.Line2" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="ab-city">City</label>
+                        <InputText id="ab-city" class="input" @bind-Value="_model.City" />
+                        <ValidationMessage For="() => _model.City" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="ab-region">State / region</label>
+                        <InputText id="ab-region" class="input" @bind-Value="_model.Region" />
+                        <ValidationMessage For="() => _model.Region" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="ab-postal">Postal code</label>
+                        <InputText id="ab-postal" class="input" @bind-Value="_model.PostalCode" />
+                        <ValidationMessage For="() => _model.PostalCode" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="ab-country">Country code</label>
+                        <InputText id="ab-country" class="input" maxlength="2" placeholder="US" @bind-Value="_model.Country" />
+                        <ValidationMessage For="() => _model.Country" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="ab-phone">Phone</label>
+                        <InputText id="ab-phone" class="input" type="tel" @bind-Value="_model.Phone" />
+                        <ValidationMessage For="() => _model.Phone" />
+                    </div>
+                </div>
+                <label class="checkbox"><InputCheckbox @bind-Value="_model.IsDefault" /> Use as my default address</label>
+                <div class="row">
+                    <button type="submit" class="btn btn--primary" disabled="@_saving">Save address</button>
+                    <button type="button" class="btn btn--ghost" @onclick="() => _showForm = false">Cancel</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    @if (_addresses is null)
+    {
+        <div class="skeleton" style="height:140px" aria-hidden="true"></div>
+    }
+    else if (_addresses.Count == 0 && !_showForm)
+    {
+        <div class="empty-state">
+            <Icon Name="truck" Class="empty-state__icon" />
+            <h3>No saved addresses</h3>
+            <p>Addresses you save here, or at checkout, will be ready for your next order.</p>
+        </div>
+    }
+    else
+    {
+        <div class="address-grid">
+            @foreach (var address in _addresses)
+            {
+                <div class="card address-card" @key="address.Id">
+                    <div class="row row--between">
+                        <strong>@address.Label</strong>
+                        @if (address.IsDefault)
+                        {
+                            <span class="badge badge--info">Default</span>
+                        }
+                    </div>
+                    <span>@address.RecipientName<br />@address.Line1@(address.Line2 is null ? null : $", {address.Line2}")<br />@address.City, @address.Region @address.PostalCode, @address.Country<br />@address.Phone</span>
+                    <div>
+                        <button type="button" class="btn btn--ghost btn--sm" @onclick="() => _pendingDelete = address"><Icon Name="trash" /> Remove</button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</section>
+
+<ConfirmDialog Open="@(_pendingDelete is not null)" Title="Remove address?" Danger="true" ConfirmText="Remove"
+               Message="@($"Remove the address \"{_pendingDelete?.Label}\" from your account?")"
+               OnConfirm="DeleteAsync" OnCancel="() => _pendingDelete = null" />
+
+@code {
+    private AddressModel _model = new();
+    private IReadOnlyList<CustomerAddress>? _addresses;
+    private CustomerAddress? _pendingDelete;
+    private ApiException? _error;
+    private bool _showForm;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _addresses = await Api.GetAsync<IReadOnlyList<CustomerAddress>>("api/account/addresses");
+        }
+        catch (ApiException e)
+        {
+            _addresses = [];
+            Toasts.Error(e.Message);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        _error = null;
+        try
+        {
+            await Api.PostAsync<CustomerAddress>("api/account/addresses", new SaveAddressRequest(
+                _model.Label, _model.RecipientName, _model.Phone, _model.Line1, _model.Line2, _model.City, _model.Region,
+                _model.PostalCode, _model.Country.ToUpperInvariant(), _model.IsDefault));
+            Toasts.Success("Address saved.");
+            _model = new();
+            _showForm = false;
+            await LoadAsync();
+        }
+        catch (ApiException e)
+        {
+            _error = e;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        var address = _pendingDelete;
+        _pendingDelete = null;
+        if (address is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Api.DeleteAsync($"api/account/addresses/{address.Id}");
+            Toasts.Success("Address removed.");
+            await LoadAsync();
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+    }
+
+    private sealed class AddressModel
+    {
+        [StringLength(40)] public string? Label { get; set; }
+        [Required(ErrorMessage = "Enter the recipient's name.")] public string RecipientName { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Enter the street address.")] public string Line1 { get; set; } = string.Empty;
+        public string? Line2 { get; set; }
+        [Required(ErrorMessage = "Enter the city.")] public string City { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Enter the state or region.")] public string Region { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Enter the postal code.")] public string PostalCode { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter a two-letter country code.")]
+        [RegularExpression("^[A-Za-z]{2}$", ErrorMessage = "Use a two-letter country code, e.g. US.")]
+        public string Country { get; set; } = "US";
+
+        [Required(ErrorMessage = "Enter a phone number.")]
+        [RegularExpression(@"^\+?[0-9 ()\-.]{6,30}$", ErrorMessage = "Enter a valid phone number.")]
+        public string Phone { get; set; } = string.Empty;
+
+        public bool IsDefault { get; set; }
+    }
+}

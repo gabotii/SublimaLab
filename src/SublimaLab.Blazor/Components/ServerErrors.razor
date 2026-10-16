@@ -1,0 +1,34 @@
+@* Shows the API's general error message and any field errors not shown next to a field. *@
+@if (Error is not null)
+{
+    <div class="alert alert--error" role="alert">
+        <Icon Name="alert" />
+        <div>
+            <p><strong>@Error.Message</strong></p>
+            @if (UnhandledFieldErrors.Any())
+            {
+                <ul>
+                    @foreach (var message in UnhandledFieldErrors)
+                    {
+                        <li>@message</li>
+                    }
+                </ul>
+            }
+            @ChildContent
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public ApiException? Error { get; set; }
+
+    /// <summary>Fields rendered with their own <see cref="FieldError"/>; excluded from the summary.</summary>
+    [Parameter] public IReadOnlyCollection<string> HandledFields { get; set; } = [];
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private IEnumerable<string> UnhandledFieldErrors =>
+        Error?.FieldErrors
+            .Where(kv => !HandledFields.Any(f => FieldError.Matches(kv.Key, f)))
+            .SelectMany(kv => kv.Value) ?? [];
+}

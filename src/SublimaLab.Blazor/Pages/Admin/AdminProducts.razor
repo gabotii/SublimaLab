@@ -1,0 +1,127 @@
+@page "/admin/products"
+@inject ApiClient Api
+@inject NavigationManager Navigation
+@inject ToastService Toasts
+
+<PageTitle>Products — SublimaLab admin</PageTitle>
+
+<div class="row row--between" style="margin-bottom:var(--space-4)">
+    <h1 style="margin:0">Products</h1>
+    <a class="btn btn--primary" href="admin/products/new"><Icon Name="sparkles" /> New product</a>
+</div>
+
+<div class="toolbar">
+    <div class="field">
+        <label class="field__label" for="product-search">Search</label>
+        <input id="product-search" class="input" type="search" placeholder="Name, slug or SKU" @bind="_search" @bind:event="oninput" @bind:after="LoadAsync" />
+    </div>
+    <div class="field">
+        <label class="field__label" for="product-category">Category</label>
+        <select id="product-category" class="select" @bind="_categoryId" @bind:after="LoadAsync">
+            <option value="">All categories</option>
+            @foreach (var category in _categories)
+            {
+                <option value="@category.Id">@category.Name</option>
+            }
+        </select>
+    </div>
+    <div class="field">
+        <label class="field__label" for="product-status">Status</label>
+        <select id="product-status" class="select" @bind="_status" @bind:after="LoadAsync">
+            <option value="">All</option>
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+        </select>
+    </div>
+</div>
+
+@if (_result is null)
+{
+    <div class="skeleton skeleton--block" aria-busy="true"></div>
+}
+else if (_result.Items.Count == 0)
+{
+    <div class="empty-state"><Icon Name="search" Class="empty-state__icon" /><h2>No products found</h2><p>Adjust the filters or create a new product.</p></div>
+}
+else
+{
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th scope="col"><span class="visually-hidden">Image</span></th>
+                    <th scope="col">Product</th>
+                    <th scope="col">Category</th>
+                    <th scope="col" class="num">Base price</th>
+                    <th scope="col" class="num">Variants</th>
+                    <th scope="col">Customizable</th>
+                    <th scope="col">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var product in _result.Items)
+                {
+                    <tr>
+                        <td>@if (product.ImageUrl is not null) { <img src="@product.ImageUrl" alt="" loading="lazy" /> }</td>
+                        <td><a href="admin/products/@product.Id">@product.Name</a><br /><span class="text-muted">/@product.Slug</span> @if (product.IsFeatured) { <span class="badge">Featured</span> }</td>
+                        <td>@product.CategoryName</td>
+                        <td class="num">@Format.Money(product.BasePrice)</td>
+                        <td class="num">@product.VariantCount</td>
+                        <td>@(product.IsCustomizable ? "Yes" : "No")</td>
+                        <td>
+                            <label class="checkbox">
+                                <input type="checkbox" checked="@product.IsActive" @onchange="e => ToggleAsync(product, (bool)e.Value!)" aria-label="Active: @product.Name" />
+                                @(product.IsActive ? "Active" : "Inactive")
+                            </label>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<AdminCategory> _categories = [];
+    private PagedResult<AdminProductSummary>? _result;
+    private string? _search;
+    private string? _categoryId;
+    private string? _status;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await Api.GetAsync<IReadOnlyList<AdminCategory>>("api/admin/categories");
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var query = "pageSize=100";
+        if (!string.IsNullOrWhiteSpace(_search)) query += $"&search={Uri.EscapeDataString(_search)}";
+        if (!string.IsNullOrEmpty(_categoryId)) query += $"&categoryId={_categoryId}";
+        if (!string.IsNullOrEmpty(_status)) query += $"&active={_status}";
+        try
+        {
+            _result = await Api.GetAsync<PagedResult<AdminProductSummary>>($"api/admin/products?{query}");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+    }
+
+    private async Task ToggleAsync(AdminProductSummary product, bool active)
+    {
+        try
+        {
+            await Api.PutAsync<AdminProduct>($"api/admin/products/{product.Id}/status", new SetActiveRequest(active));
+            Toasts.Success($"{product.Name} is now {(active ? "active" : "inactive")}.");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+
+        await LoadAsync();
+    }
+}

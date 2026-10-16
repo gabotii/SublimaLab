@@ -1,0 +1,507 @@
+@page "/checkout"
+@attribute [Authorize]
+@implements IDisposable
+@inject ApiClient Api
+@inject AuthService Auth
+@inject CartState CartState
+@inject CatalogCache Catalog
+@inject NavigationManager Navigation
+@inject ToastService Toasts
+
+<PageTitle>Checkout — SublimaLab</PageTitle>
+
+<div class="container">
+    <header class="page-header">
+        <h1>Checkout</h1>
+    </header>
+
+    @if (_loading)
+    {
+        <div class="page-loading" role="status"><span class="spinner"></span><span class="visually-hidden">Loading checkout…</span></div>
+    }
+    else if (_loadError is not null)
+    {
+        <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_loadError</p></div>
+    }
+    else if (Cart.Items.Count == 0 && _order is null)
+    {
+        <div class="empty-state">
+            <Icon Name="cart" Class="empty-state__icon" />
+            <h2>Your cart is empty</h2>
+            <p>Add something to your cart before checking out.</p>
+            <a class="btn btn--primary" href="shop">Browse products</a>
+        </div>
+    }
+    else
+    {
+        <ol class="checkout-steps" aria-label="Checkout progress">
+            @foreach (var (label, index) in StepLabels.Select((l, i) => (l, i + 1)))
+            {
+                <li class="@(index < _step ? "done" : index == _step ? "current" : null)" aria-current="@(index == _step ? "step" : null)">
+                    @index. @label
+                </li>
+            }
+        </ol>
+
+        <div class="layout-with-summary">
+            <div>
+                @if (_step == 1)
+                {
+                    <section class="card panel" aria-labelledby="contact-title">
+                        <div class="panel__header"><h2 id="contact-title" tabindex="-1" @ref="_stepHeading">Contact information</h2></div>
+                        <EditForm Model="_contact" OnValidSubmit="() => GoToStep(2)" FormName="contact" class="form-grid">
+                            <DataAnnotationsValidator />
+                            <div class="field">
+                                <label class="field__label" for="c-name">Full name</label>
+                                <InputText id="c-name" class="input" autocomplete="name" @bind-Value="_contact.FullName" />
+                                <ValidationMessage For="() => _contact.FullName" />
+                            </div>
+                            <div class="form-grid form-grid--2">
+                                <div class="field">
+                                    <label class="field__label" for="c-email">Email</label>
+                                    <InputText id="c-email" class="input" type="email" autocomplete="email" @bind-Value="_contact.Email" />
+                                    <span class="field__hint">We'll send your order updates here.</span>
+                                    <ValidationMessage For="() => _contact.Email" />
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="c-phone">Phone</label>
+                                    <InputText id="c-phone" class="input" type="tel" autocomplete="tel" @bind-Value="_contact.Phone" />
+                                    <span class="field__hint">For delivery questions only.</span>
+                                    <ValidationMessage For="() => _contact.Phone" />
+                                </div>
+                            </div>
+                            <div class="panel__actions">
+                                <a class="btn btn--ghost" href="cart"><Icon Name="arrow-left" /> Back to cart</a>
+                                <button type="submit" class="btn btn--primary">Continue to address <Icon Name="arrow-right" /></button>
+                            </div>
+                        </EditForm>
+                    </section>
+                }
+                else if (_step == 2)
+                {
+                    <section class="card panel" aria-labelledby="address-title">
+                        <div class="panel__header"><h2 id="address-title" tabindex="-1" @ref="_stepHeading">Shipping address</h2></div>
+
+                        @if (_addresses.Count > 0)
+                        {
+                            <fieldset class="radio-cards" style="border:0;padding:0;margin:0 0 var(--space-4)">
+                                <legend class="field__label" style="margin-bottom:var(--space-2)">Saved addresses</legend>
+                                @foreach (var address in _addresses)
+                                {
+                                    <label class="radio-card">
+                                        <input type="radio" name="address" checked="@(_selectedAddressId == address.Id)" @onchange="() => UseSavedAddress(address)" />
+                                        <span class="radio-card__body">
+                                            <span class="radio-card__title">@address.RecipientName @if (address.IsDefault) { <span class="badge">Default</span> }</span>
+                                            @address.Line1@(address.Line2 is null ? null : $", {address.Line2}"), @address.City, @address.Region @address.PostalCode, @CountryName(address.Country)
+                                        </span>
+                                    </label>
+                                }
+                                <label class="radio-card">
+                                    <input type="radio" name="address" checked="@(_selectedAddressId is null)" @onchange="UseNewAddress" />
+                                    <span class="radio-card__body"><span class="radio-card__title">Use a new address</span></span>
+                                </label>
+                            </fieldset>
+                        }
+
+                        <EditForm Model="_address" OnValidSubmit="() => GoToStep(3)" FormName="address" class="form-grid">
+                            <DataAnnotationsValidator />
+                            @if (_selectedAddressId is null)
+                            {
+                                <div class="form-grid form-grid--2">
+                                    <div class="field span-2">
+                                        <label class="field__label" for="a-line1">Street address</label>
+                                        <InputText id="a-line1" class="input" autocomplete="address-line1" @bind-Value="_address.Line1" />
+                                        <ValidationMessage For="() => _address.Line1" />
+                                    </div>
+                                    <div class="field span-2">
+                                        <label class="field__label" for="a-line2">Apartment, suite, etc. <span class="text-muted">(optional)</span></label>
+                                        <InputText id="a-line2" class="input" autocomplete="address-line2" @bind-Value="_address.Line2" />
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="a-city">City</label>
+                                        <InputText id="a-city" class="input" autocomplete="address-level2" @bind-Value="_address.City" />
+                                        <ValidationMessage For="() => _address.City" />
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="a-region">State / region</label>
+                                        <InputText id="a-region" class="input" autocomplete="address-level1" @bind-Value="_address.Region" />
+                                        <ValidationMessage For="() => _address.Region" />
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="a-postal">Postal code</label>
+                                        <InputText id="a-postal" class="input" autocomplete="postal-code" @bind-Value="_address.PostalCode" />
+                                        <ValidationMessage For="() => _address.PostalCode" />
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="a-country">Country</label>
+                                        <InputSelect id="a-country" class="select" autocomplete="country" @bind-Value="_address.Country">
+                                            @foreach (var (countryCode, countryName) in Countries)
+                                            {
+                                                <option value="@countryCode">@countryName</option>
+                                            }
+                                        </InputSelect>
+                                        <ValidationMessage For="() => _address.Country" />
+                                    </div>
+                                </div>
+                                <label class="checkbox"><InputCheckbox @bind-Value="_saveAddress" /> Save this address to my account</label>
+                            }
+                            <div class="panel__actions">
+                                <button type="button" class="btn btn--ghost" @onclick="() => GoToStep(1)"><Icon Name="arrow-left" /> Back</button>
+                                <button type="submit" class="btn btn--primary">Continue to shipping <Icon Name="arrow-right" /></button>
+                            </div>
+                        </EditForm>
+                    </section>
+                }
+                else if (_step == 3)
+                {
+                    <section class="card panel" aria-labelledby="shipping-title">
+                        <div class="panel__header"><h2 id="shipping-title" tabindex="-1" @ref="_stepHeading">Shipping method</h2></div>
+                        <fieldset class="radio-cards" style="border:0;padding:0;margin:0">
+                            <legend class="visually-hidden">Choose a shipping method</legend>
+                            @foreach (var method in _shippingMethods)
+                            {
+                                var cost = ShippingCostFor(method);
+                                <label class="radio-card">
+                                    <input type="radio" name="shipping" checked="@(_shippingCode == method.Code)" @onchange="() => SelectShippingAsync(method.Code)" />
+                                    <span class="radio-card__body">
+                                        <span class="radio-card__title"><span>@method.Name</span><span>@(cost == 0 ? "Free" : Format.Money(cost, method.Currency))</span></span>
+                                        <span class="text-muted">@method.MinDeliveryDays–@method.MaxDeliveryDays business days after production · @method.Description</span>
+                                    </span>
+                                </label>
+                            }
+                        </fieldset>
+                        <div class="panel__actions">
+                            <button type="button" class="btn btn--ghost" @onclick="() => GoToStep(2)"><Icon Name="arrow-left" /> Back</button>
+                            <button type="button" class="btn btn--primary" @onclick="() => GoToStep(4)" disabled="@_updatingTotals">Review order <Icon Name="arrow-right" /></button>
+                        </div>
+                    </section>
+                }
+                else
+                {
+                    <section class="card panel" aria-labelledby="review-title">
+                        <div class="panel__header">
+                            <h2 id="review-title" tabindex="-1" @ref="_stepHeading">Review &amp; pay</h2>
+                        </div>
+
+                        <div class="form-grid form-grid--2" style="margin-bottom:var(--space-5)">
+                            <div class="review-block">
+                                <h3>Contact</h3>
+                                <p>@_contact.FullName<br />@_contact.Email<br />@_contact.Phone</p>
+                                @if (_order is null) { <button type="button" class="btn btn--ghost btn--sm" @onclick="() => GoToStep(1)">Edit</button> }
+                            </div>
+                            <div class="review-block">
+                                <h3>Ship to</h3>
+                                <p>@ShippingAddress.Line1@(ShippingAddress.Line2 is null ? null : $", {ShippingAddress.Line2}")<br />@ShippingAddress.City, @ShippingAddress.Region @ShippingAddress.PostalCode<br />@CountryName(ShippingAddress.Country)</p>
+                                @if (_order is null) { <button type="button" class="btn btn--ghost btn--sm" @onclick="() => GoToStep(2)">Edit</button> }
+                            </div>
+                        </div>
+
+                        <fieldset class="radio-cards" style="border:0;padding:0;margin:0">
+                            <legend class="field__label" style="margin-bottom:var(--space-2)">Payment</legend>
+                            <div class="alert alert--info"><Icon Name="info" /><p><strong>Test mode.</strong> No real payment is taken. Choose how the test card should respond.</p></div>
+                            <label class="radio-card">
+                                <input type="radio" name="payment" checked="@(_paymentToken == SuccessToken)" @onchange="() => _paymentToken = SuccessToken" />
+                                <span class="radio-card__body"><span class="radio-card__title">Test card · approved</span><span class="text-muted">Simulates a successful card payment.</span></span>
+                            </label>
+                            <label class="radio-card">
+                                <input type="radio" name="payment" checked="@(_paymentToken == DeclinedToken)" @onchange="() => _paymentToken = DeclinedToken" />
+                                <span class="radio-card__body"><span class="radio-card__title">Test card · declined</span><span class="text-muted">Simulates a declined card so you can try the retry flow.</span></span>
+                            </label>
+                        </fieldset>
+
+                        @if (_checkoutError is not null)
+                        {
+                            <div style="margin-top:var(--space-4)">
+                                <ServerErrors Error="_checkoutError">
+                                    @if (_checkoutError.Code is "CART_HAS_UNAVAILABLE_ITEMS" or "DISCOUNT_INVALID")
+                                    {
+                                        <a href="cart">Review your cart</a>
+                                    }
+                                </ServerErrors>
+                            </div>
+                        }
+                        @if (_paymentFailure is not null)
+                        {
+                            <div class="alert alert--error" role="alert" style="margin-top:var(--space-4)">
+                                <Icon Name="alert" />
+                                <p><strong>Payment declined:</strong> @_paymentFailure Your order @_order?.OrderNumber is saved. Choose another payment option and try again.</p>
+                            </div>
+                        }
+
+                        <div class="panel__actions">
+                            @if (_order is null)
+                            {
+                                <button type="button" class="btn btn--ghost" @onclick="() => GoToStep(3)"><Icon Name="arrow-left" /> Back</button>
+                            }
+                            <button type="button" class="btn btn--primary btn--lg" @onclick="PlaceOrderAsync" disabled="@_placing">
+                                @if (_placing)
+                                {
+                                    <span class="btn__spinner" aria-hidden="true"></span>
+                                }
+                                <Icon Name="lock" /> @(_order is null ? $"Place order · {Format.Money(TotalForDisplay, Cart.Currency)}" : $"Retry payment · {Format.Money(_order.Total, _order.Currency)}")
+                            </button>
+                        </div>
+                        <p class="summary__note">By placing your order you agree to our terms. Your card details never touch our servers.</p>
+                    </section>
+                }
+            </div>
+
+            <aside class="card summary" aria-labelledby="checkout-summary-title">
+                <h2 id="checkout-summary-title">Order summary</h2>
+                <ul class="summary__items">
+                    @foreach (var line in SummaryLines)
+                    {
+                        <li>
+                            <span class="cart-line__media" style="width:48px;height:48px;padding:3px" aria-hidden="true">
+                                <ProductArt Kind="@line.Art" Color="@line.Color" />
+                            </span>
+                            <span>
+                                <strong>@line.Name</strong><br />
+                                <span class="text-muted">@line.Variant · Qty @line.Quantity@(line.Customized ? " · Your design" : null)</span>
+                            </span>
+                            <span>@Format.Money(line.Total, Cart.Currency)</span>
+                        </li>
+                    }
+                </ul>
+                <div class="summary__rows">
+                    <div class="summary__row"><span>Subtotal</span><span>@Format.Money(Totals.Subtotal, Cart.Currency)</span></div>
+                    @if (Totals.Discount > 0)
+                    {
+                        <div class="summary__row summary__row--discount"><span>Discount</span><span>−@Format.Money(Totals.Discount, Cart.Currency)</span></div>
+                    }
+                    <div class="summary__row"><span>Shipping</span><span>@(Totals.Shipping == 0 ? "Free" : Format.Money(Totals.Shipping, Cart.Currency))</span></div>
+                    <div class="summary__row"><span>Tax</span><span>@Format.Money(Totals.Tax, Cart.Currency)</span></div>
+                </div>
+                <div class="summary__total" aria-live="polite"><span>Total</span><span>@Format.Money(Totals.Total, Cart.Currency)</span></div>
+            </aside>
+        </div>
+    }
+</div>
+
+@code {
+    private const string SuccessToken = "tok_test_success";
+    private const string DeclinedToken = "tok_test_declined";
+    private static readonly string[] StepLabels = ["Contact", "Address", "Shipping", "Review & pay"];
+
+    // Destinations currently served. ISO 3166-1 alpha-2 codes, as required by the API.
+    private static readonly (string Code, string Name)[] Countries =
+    [
+        ("US", "United States"), ("CA", "Canada"), ("MX", "Mexico"), ("GB", "United Kingdom"), ("IE", "Ireland"),
+        ("ES", "Spain"), ("FR", "France"), ("DE", "Germany"), ("IT", "Italy"), ("PT", "Portugal"),
+        ("NL", "Netherlands"), ("AU", "Australia"),
+    ];
+
+    private sealed record SummaryLine(string Name, string Variant, int Quantity, bool Customized, decimal Total, string Art, string? Color);
+
+    private readonly ContactModel _contact = new();
+    private readonly AddressModel _address = new();
+    private readonly Guid _idempotencyKey = Guid.NewGuid();
+    private IReadOnlyList<CustomerAddress> _addresses = [];
+    private IReadOnlyList<ShippingMethod> _shippingMethods = [];
+    private Guid? _selectedAddressId;
+    private bool _saveAddress = true;
+    private string _shippingCode = "standard";
+    private string _paymentToken = SuccessToken;
+    private int _step = 1;
+    private bool _loading = true;
+    private bool _updatingTotals;
+    private bool _placing;
+    private bool _focusHeading;
+    private string? _loadError;
+    private ApiException? _checkoutError;
+    private string? _paymentFailure;
+    private Order? _order;
+    private ElementReference _stepHeading;
+
+    private Cart Cart => CartState.Cart;
+
+    private CartTotals Totals => _order is null
+        ? Cart.Totals
+        : new CartTotals(_order.Subtotal, _order.Discount, _order.Shipping, _order.ShippingMethodCode, _order.Tax, _order.Total);
+
+    private decimal TotalForDisplay => Cart.Totals.Total;
+
+    private IEnumerable<SummaryLine> SummaryLines => _order is null
+        ? Cart.Items.Select(l => new SummaryLine(l.ProductName, l.Variant?.Label ?? string.Empty, l.Quantity, l.IsCustomized, l.LineTotal, ArtKind.FromProductSlug(l.ProductSlug), l.Variant?.ColorHex))
+        : _order.Items.Select(i => new SummaryLine(i.ProductName, i.VariantLabel, i.Quantity, i.IsCustomized, i.LineTotal, ArtKind.FromSku(i.Sku), i.ColorHex));
+
+    private Address ShippingAddress
+    {
+        get
+        {
+            var saved = _addresses.FirstOrDefault(a => a.Id == _selectedAddressId);
+            return saved is not null
+                ? new Address(saved.Line1, saved.Line2, saved.City, saved.Region, saved.PostalCode, saved.Country)
+                : new Address(_address.Line1.Trim(), string.IsNullOrWhiteSpace(_address.Line2) ? null : _address.Line2.Trim(),
+                    _address.City.Trim(), _address.Region.Trim(), _address.PostalCode.Trim(), _address.Country);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        CartState.Changed += OnCartChanged;
+        try
+        {
+            var addresses = Api.GetAsync<IReadOnlyList<CustomerAddress>>("api/account/addresses");
+            var methods = Catalog.GetShippingMethodsAsync();
+            await CartState.RefreshAsync(_shippingCode);
+            _addresses = await addresses;
+            _shippingMethods = await methods;
+
+            var user = Auth.CurrentUser;
+            _contact.FullName = user?.FullName ?? string.Empty;
+            _contact.Email = user?.Email ?? string.Empty;
+            _contact.Phone = user?.PhoneNumber ?? _addresses.FirstOrDefault(a => a.IsDefault)?.Phone ?? string.Empty;
+
+            if ((_addresses.FirstOrDefault(a => a.IsDefault) ?? _addresses.FirstOrDefault()) is { } preferred)
+            {
+                UseSavedAddress(preferred);
+            }
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _loadError = "We couldn't load checkout. Please refresh to try again.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusHeading)
+        {
+            _focusHeading = false;
+            await _stepHeading.FocusAsync();
+        }
+    }
+
+    private void GoToStep(int step)
+    {
+        _step = step;
+        _focusHeading = true;
+    }
+
+    private void UseSavedAddress(CustomerAddress address)
+    {
+        _selectedAddressId = address.Id;
+        _address.Skip = true;
+    }
+
+    private void UseNewAddress()
+    {
+        _selectedAddressId = null;
+        _address.Skip = false;
+    }
+
+    private decimal ShippingCostFor(ShippingMethod method)
+    {
+        var discounted = Cart.Totals.Subtotal - Cart.Totals.Discount;
+        return method.FreeShippingThreshold is { } threshold && discounted >= threshold ? 0 : method.Cost;
+    }
+
+    private async Task SelectShippingAsync(string code)
+    {
+        _shippingCode = code;
+        _updatingTotals = true;
+        try
+        {
+            await CartState.RefreshAsync(code);
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+        finally
+        {
+            _updatingTotals = false;
+        }
+    }
+
+    private async Task PlaceOrderAsync()
+    {
+        _placing = true;
+        _checkoutError = null;
+        _paymentFailure = null;
+        try
+        {
+            // The idempotency key makes a double click (or a retry after a network error) return the same order.
+            _order ??= await Api.PostAsync<Order>("api/orders", new PlaceOrderRequest(
+                _idempotencyKey,
+                new Contact(_contact.FullName.Trim(), _contact.Email.Trim(), _contact.Phone.Trim()),
+                ShippingAddress,
+                _shippingCode,
+                _selectedAddressId is null && _saveAddress));
+
+            var payment = await Api.PostAsync<Payment>("api/payments", new CreatePaymentRequest(_order.Id));
+            var outcome = await Api.PostAsync<PaymentOutcome>($"api/payments/{payment.Id}/confirm", new ConfirmPaymentRequest(_paymentToken));
+
+            if (outcome.OrderStatus == OrderStatus.Paid)
+            {
+                await CartState.ReloadAsync();
+                Navigation.NavigateTo($"account/orders/{_order.Id}?placed=true");
+                return;
+            }
+
+            _paymentFailure = outcome.Payment.FailureReason ?? "The payment was not approved.";
+            await CartState.ReloadAsync();
+        }
+        catch (ApiException e)
+        {
+            _checkoutError = e;
+        }
+        finally
+        {
+            _placing = false;
+        }
+    }
+
+    private static string CountryName(string code) => Countries.FirstOrDefault(c => c.Code == code).Name ?? code;
+
+    private void OnCartChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => CartState.Changed -= OnCartChanged;
+
+    private sealed class ContactModel
+    {
+        [Required(ErrorMessage = "Enter your full name."), StringLength(120)]
+        public string FullName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter your email address."), EmailAddress(ErrorMessage = "Enter a valid email address.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter a phone number.")]
+        [RegularExpression(@"^\+?[0-9 ()\-.]{6,30}$", ErrorMessage = "Enter a valid phone number.")]
+        public string Phone { get; set; } = string.Empty;
+    }
+
+    private sealed class AddressModel : IValidatableObject
+    {
+        public string Line1 { get; set; } = string.Empty;
+        public string? Line2 { get; set; }
+        public string City { get; set; } = string.Empty;
+        public string Region { get; set; } = string.Empty;
+        public string PostalCode { get; set; } = string.Empty;
+        public string Country { get; set; } = "US";
+
+        /// <summary>Set while a saved address is selected, so the hidden form isn't validated.</summary>
+        public bool Skip { get; set; }
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            if (Skip)
+            {
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(Line1)) yield return new("Enter your street address.", [nameof(Line1)]);
+            if (string.IsNullOrWhiteSpace(City)) yield return new("Enter your city.", [nameof(City)]);
+            if (string.IsNullOrWhiteSpace(Region)) yield return new("Enter your state or region.", [nameof(Region)]);
+            if (string.IsNullOrWhiteSpace(PostalCode) || !System.Text.RegularExpressions.Regex.IsMatch(PostalCode, "^[A-Za-z0-9 -]{3,20}$"))
+            {
+                yield return new("Enter a valid postal code.", [nameof(PostalCode)]);
+            }
+        }
+    }
+}

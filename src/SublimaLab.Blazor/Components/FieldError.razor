@@ -1,0 +1,17 @@
+@* Server-side validation message for one field (e.g. "email" or "shippingAddress.postalCode"). *@
+@foreach (var message in Messages)
+{
+    <span class="field__error" role="alert">@message</span>
+}
+
+@code {
+    [Parameter] public ApiException? Error { get; set; }
+    [Parameter, EditorRequired] public string Field { get; set; } = string.Empty;
+
+    private IEnumerable<string> Messages =>
+        Error?.FieldErrors.Where(kv => Matches(kv.Key, Field)).SelectMany(kv => kv.Value) ?? [];
+
+    internal static bool Matches(string key, string field) =>
+        string.Equals(key, field, StringComparison.OrdinalIgnoreCase) ||
+        key.EndsWith("." + field, StringComparison.OrdinalIgnoreCase);
+}

@@ -1,0 +1,243 @@
+@page "/"
+@inject ApiClient Api
+@inject CatalogCache Catalog
+
+<PageTitle>SublimaLab — Custom T-shirts, mugs &amp; keychains</PageTitle>
+
+<section class="hero" aria-labelledby="hero-title">
+    <div class="container hero__grid">
+        <div>
+            <span class="eyebrow"><Icon Name="sparkles" /> Custom sublimation, made simple</span>
+            <h1 id="hero-title">Turn your ideas into something you can <span class="text-gradient">wear, use, and share.</span></h1>
+            <p class="hero__lead">
+                Upload your artwork, add your words and see it come to life on premium T-shirts, mugs and keychains.
+                Vivid prints that won't crack or fade, made to order and shipped to your door.
+            </p>
+            <div class="hero__ctas">
+                <a class="btn btn--primary btn--lg" href="shop?customizable=true"><Icon Name="sparkles" /> Create Your Design</a>
+                <a class="btn btn--secondary btn--lg" href="shop">Shop Products</a>
+            </div>
+            <div class="hero__trust">
+                <span><Icon Name="check" /> Free shipping over $50</span>
+                <span><Icon Name="check" /> Printed in 1–2 days</span>
+                <span><Icon Name="check" /> Secure checkout</span>
+            </div>
+        </div>
+
+        <div class="hero__visual" aria-hidden="true">
+            <div class="hero__card">
+                <ProductArt Kind="@ArtKind.TShirt" Color="#FFFFFF" />
+            </div>
+            <div class="hero__swatches">
+                <span style="background:#ffffff"></span>
+                <span style="background:#a9d4f5"></span>
+                <span style="background:#f7c8d6"></span>
+                <span style="background:#1c1c1e"></span>
+            </div>
+            <span class="hero__chip hero__chip--a"><span class="hero__chip-dot" style="background:#7c3aed"></span> Your artwork</span>
+            <span class="hero__chip hero__chip--b"><Icon Name="cube" Class="toast__icon" /> Live 3D preview</span>
+            <span class="hero__chip hero__chip--c"><span class="hero__chip-dot" style="background:#06b6d4"></span> Custom text</span>
+        </div>
+    </div>
+</section>
+
+<section class="section" aria-labelledby="categories-title">
+    <div class="container">
+        <div class="section__header">
+            <div>
+                <span class="eyebrow">Shop by product</span>
+                <h2 id="categories-title">Pick your canvas</h2>
+            </div>
+            <a class="btn btn--ghost" href="shop">View all products <Icon Name="arrow-right" /></a>
+        </div>
+        <div class="grid grid--categories">
+            @foreach (var (category, index) in _categories.Select((c, i) => (c, i)))
+            {
+                <a class="card category-card" href="shop/@category.Slug">
+                    <div class="category-card__art @CategoryTone(index)">
+                        <ProductArt Kind="@ArtKind.FromCategory(category.Slug)" Color="#FFFFFF" />
+                    </div>
+                    <div class="category-card__body">
+                        <h3>@category.Name</h3>
+                        <p>@category.Description</p>
+                        <span class="category-card__cta">Shop @category.Name.ToLowerInvariant() <Icon Name="arrow-right" /></span>
+                    </div>
+                </a>
+            }
+            @if (_categories.Count == 0 && _loadingCategories)
+            {
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="skeleton skeleton--block" aria-hidden="true"></div>
+                }
+            }
+        </div>
+    </div>
+</section>
+
+<section class="section section--muted" aria-labelledby="how-title">
+    <div class="container">
+        <div class="section__header">
+            <div>
+                <span class="eyebrow">How it works</span>
+                <h2 id="how-title">From idea to doorstep in four steps</h2>
+            </div>
+        </div>
+        <ol class="steps">
+            <li class="step">
+                <span class="step__number" aria-hidden="true">1</span>
+                <h3>Choose a product</h3>
+                <p>Pick a T-shirt, mug or keychain and the color and size you love.</p>
+            </li>
+            <li class="step">
+                <span class="step__number" aria-hidden="true">2</span>
+                <h3>Upload your design</h3>
+                <p>Drop in a photo, logo or illustration. PNG, JPG and WebP all work.</p>
+            </li>
+            <li class="step">
+                <span class="step__number" aria-hidden="true">3</span>
+                <h3>Customize &amp; preview</h3>
+                <p>Add text, move, resize and rotate, then check every angle in live 3D.</p>
+            </li>
+            <li class="step">
+                <span class="step__number" aria-hidden="true">4</span>
+                <h3>Order</h3>
+                <p>Check out securely. We print, pack and ship it, usually within two days.</p>
+            </li>
+        </ol>
+    </div>
+</section>
+
+<section class="section" aria-labelledby="featured-title">
+    <div class="container">
+        <div class="section__header">
+            <div>
+                <span class="eyebrow">Customer favorites</span>
+                <h2 id="featured-title">Featured products</h2>
+            </div>
+            <a class="btn btn--ghost" href="shop">Browse the shop <Icon Name="arrow-right" /></a>
+        </div>
+
+        @if (_featuredError is not null)
+        {
+            <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_featuredError</p></div>
+        }
+        else
+        {
+            <div class="grid">
+                @if (_featured is null)
+                {
+                    @for (var i = 0; i < 4; i++)
+                    {
+                        <ProductCardSkeleton />
+                    }
+                }
+                else
+                {
+                    @foreach (var product in _featured)
+                    {
+                        <ProductCard Product="product" @key="product.Id" />
+                    }
+                }
+            </div>
+        }
+    </div>
+</section>
+
+<section class="section section--muted" aria-labelledby="why-title">
+    <div class="container">
+        <div class="section__header">
+            <div>
+                <span class="eyebrow">Why SublimaLab?</span>
+                <h2 id="why-title">Made for creators, built to last</h2>
+            </div>
+        </div>
+        <div class="benefits">
+            <div class="benefit">
+                <div class="benefit__icon tone-violet" style="color:var(--color-primary)"><Icon Name="palette" /></div>
+                <h3>Easy customization</h3>
+                <p>Upload, type, drag and drop. No design skills needed.</p>
+            </div>
+            <div class="benefit">
+                <div class="benefit__icon tone-cyan" style="color:var(--color-secondary)"><Icon Name="cube" /></div>
+                <h3>Live 3D preview</h3>
+                <p>See exactly how your design will look before you order.</p>
+            </div>
+            <div class="benefit">
+                <div class="benefit__icon tone-pink" style="color:var(--color-accent)"><Icon Name="printer" /></div>
+                <h3>High-quality printing</h3>
+                <p>Sublimation inks fuse into the material for vivid, lasting color.</p>
+            </div>
+            <div class="benefit">
+                <div class="benefit__icon tone-violet" style="color:var(--color-primary)"><Icon Name="layers" /></div>
+                <h3>Multiple products</h3>
+                <p>One design, many canvases: tees, mugs and keychains.</p>
+            </div>
+            <div class="benefit">
+                <div class="benefit__icon tone-cyan" style="color:var(--color-secondary)"><Icon Name="shield" /></div>
+                <h3>Secure checkout</h3>
+                <p>Encrypted payments. We never store your card details.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <div class="container">
+        <div class="cta-band">
+            <h2>Ready to make something yours?</h2>
+            <p>Start with a blank tee, mug or keychain and turn it into a one-of-a-kind piece in minutes.</p>
+            <a class="btn btn--secondary btn--lg" href="shop?customizable=true">Start designing <Icon Name="arrow-right" /></a>
+        </div>
+    </div>
+</section>
+
+@code {
+    private IReadOnlyList<Category> _categories = [];
+    private bool _loadingCategories = true;
+    private IReadOnlyList<ProductSummary>? _featured;
+    private string? _featuredError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var categories = LoadCategoriesAsync();
+        var featured = LoadFeaturedAsync();
+        await Task.WhenAll(categories, featured);
+    }
+
+    private async Task LoadCategoriesAsync()
+    {
+        try
+        {
+            _categories = await Catalog.GetCategoriesAsync();
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _categories = [];
+        }
+        finally
+        {
+            _loadingCategories = false;
+        }
+    }
+
+    private async Task LoadFeaturedAsync()
+    {
+        try
+        {
+            var result = await Api.GetAsync<PagedResult<ProductSummary>>("api/products?featured=true&pageSize=8");
+            _featured = result.Items;
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _featuredError = "We couldn't load our featured products right now. Please refresh to try again.";
+        }
+    }
+
+    private static string CategoryTone(int index) => (index % 3) switch
+    {
+        0 => "tone-violet",
+        1 => "tone-cyan",
+        _ => "tone-pink",
+    };
+}

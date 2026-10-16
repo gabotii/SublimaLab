@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>SublimaLab.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SublimaLab.Domain\SublimaLab.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- EF Core abstractions only (DbSet/IQueryable async extensions). No provider is referenced here. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SublimaLab.UnitTests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,30 @@
+@* Shared frame for the contact and legal pages: title, last-updated line and the template notice. *@
+<PageTitle>@Title — SublimaLab</PageTitle>
+
+<div class="container section legal">
+    <header class="page-header">
+        <h1>@Title</h1>
+        @if (ShowUpdated)
+        {
+            <p>Last updated: @StoreInfo.LastUpdated</p>
+        }
+    </header>
+
+    @if (StoreInfo.IsPlaceholder)
+    {
+        <div class="alert alert--warning legal__notice" role="note">
+            <Icon Name="info" />
+            <p><strong>Template text.</strong> Replace the bracketed company details and have this page reviewed by a qualified lawyer before the store goes live.</p>
+        </div>
+    }
+
+    <article class="prose">
+        @ChildContent
+    </article>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public bool ShowUpdated { get; set; } = true;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

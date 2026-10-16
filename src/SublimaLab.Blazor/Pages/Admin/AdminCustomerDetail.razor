@@ -1,0 +1,122 @@
+@page "/admin/customers/{Id:guid}"
+@inject ApiClient Api
+@inject ToastService Toasts
+
+<PageTitle>@(_customer?.Email ?? "Customer") — SublimaLab admin</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_error</p></div>
+}
+else if (_customer is null)
+{
+    <div class="page-loading" role="status"><span class="spinner"></span></div>
+}
+else
+{
+    <nav class="breadcrumbs" aria-label="Breadcrumb"><ol><li><a href="admin/customers">Customers</a></li><li aria-current="page">@_customer.Email</li></ol></nav>
+    <div class="row row--between" style="margin-bottom:var(--space-4)">
+        <div>
+            <h1 style="margin:0">@($"{_customer.FirstName} {_customer.LastName}".Trim())</h1>
+            <p class="text-muted" style="margin:0"><a href="mailto:@_customer.Email">@_customer.Email</a> · joined @Format.Date(_customer.CreatedAt)</p>
+        </div>
+        @if (!_customer.Roles.Contains("Admin"))
+        {
+            <button type="button" class="btn @(_customer.IsLockedOut ? "btn--secondary" : "btn--danger")" @onclick="() => _confirm = true">
+                <Icon Name="lock" /> @(_customer.IsLockedOut ? "Unlock account" : "Lock account")
+            </button>
+        }
+    </div>
+
+    <div class="stat-grid">
+        <div class="card stat"><p class="stat__label">Orders</p><p class="stat__value">@_customer.OrderCount</p></div>
+        <div class="card stat"><p class="stat__label">Total spent</p><p class="stat__value">@Format.Money(_customer.TotalSpent)</p></div>
+        <div class="card stat">
+            <p class="stat__label">Account</p>
+            <p class="stat__value" style="font-size:var(--text-lg)">@(_customer.IsLockedOut ? "Locked" : _customer.EmailConfirmed ? "Active" : "Email unconfirmed")</p>
+            <p class="stat__hint">Roles: @string.Join(", ", _customer.Roles)</p>
+        </div>
+    </div>
+
+    <div class="layout-with-summary">
+        <section aria-labelledby="customer-orders">
+            <h2 id="customer-orders" style="font-size:var(--text-lg)">Orders</h2>
+            @if (_customer.Orders.Count == 0)
+            {
+                <p class="text-muted">No orders yet.</p>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th scope="col">Order</th><th scope="col">Placed</th><th scope="col">Status</th><th scope="col" class="num">Total</th></tr></thead>
+                        <tbody>
+                            @foreach (var order in _customer.Orders)
+                            {
+                                <tr>
+                                    <td><a href="admin/orders/@order.Id">@order.OrderNumber</a></td>
+                                    <td>@Format.Date(order.PlacedAt)</td>
+                                    <td><span class="badge badge--@Format.StatusTone(order.Status)">@Format.Status(order.Status)</span></td>
+                                    <td class="num">@Format.Money(order.Total, order.Currency)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+        <aside class="card panel review-block">
+            <h3>Phone</h3>
+            <p>@(_customer.PhoneNumber ?? "Not provided")</p>
+            <h3>Saved addresses</h3>
+            @if (_customer.Addresses.Count == 0)
+            {
+                <p class="text-muted" style="margin:0">None</p>
+            }
+            @foreach (var address in _customer.Addresses)
+            {
+                <p>@address.RecipientName<br />@address.Line1, @address.City, @address.Region @address.PostalCode, @address.Country</p>
+            }
+        </aside>
+    </div>
+}
+
+<ConfirmDialog Open="_confirm" Title="@(_customer?.IsLockedOut == true ? "Unlock this account?" : "Lock this account?")"
+               Danger="@(_customer?.IsLockedOut != true)" ConfirmText="@(_customer?.IsLockedOut == true ? "Unlock" : "Lock account")"
+               Message="@(_customer?.IsLockedOut == true ? "The customer will be able to sign in again." : "The customer will be signed out everywhere and won't be able to sign in until you unlock the account. Their orders are not affected.")"
+               OnConfirm="ToggleLockAsync" OnCancel="() => _confirm = false" />
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private AdminCustomer? _customer;
+    private string? _error;
+    private bool _confirm;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _customer = await Api.GetAsync<AdminCustomer>($"api/admin/customers/{Id}");
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _error = e is ApiException { Status: System.Net.HttpStatusCode.NotFound } ? "This customer doesn't exist." : "We couldn't load this customer.";
+        }
+    }
+
+    private async Task ToggleLockAsync()
+    {
+        _confirm = false;
+        try
+        {
+            var locking = _customer?.IsLockedOut != true;
+            _customer = await Api.PutAsync<AdminCustomer>($"api/admin/customers/{Id}/lock", new SetLockRequest(locking));
+            Toasts.Success(locking ? "Account locked." : "Account unlocked.");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+    }
+}

@@ -1,0 +1,47 @@
+@* Accessible confirmation dialog: focus moves to the safe action, Escape cancels. *@
+@if (Open)
+{
+    <div class="dialog-backdrop" @onclick="CancelAsync">
+        <div class="card dialog" role="alertdialog" aria-modal="true" aria-labelledby="@_titleId" aria-describedby="@_messageId"
+             @onclick:stopPropagation="true" @onkeydown="OnKeyDownAsync">
+            <h2 id="@_titleId">@Title</h2>
+            <p id="@_messageId">@Message</p>
+            <div class="dialog__actions">
+                <button type="button" class="btn btn--secondary" @ref="_cancelButton" @onclick="CancelAsync">@CancelText</button>
+                <button type="button" class="btn @(Danger ? "btn--danger" : "btn--primary")" @onclick="ConfirmAsync">@ConfirmText</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public string Message { get; set; } = string.Empty;
+    [Parameter] public string ConfirmText { get; set; } = "Confirm";
+    [Parameter] public string CancelText { get; set; } = "Cancel";
+    [Parameter] public bool Danger { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private readonly string _titleId = "dlg-t-" + Guid.NewGuid().ToString("N")[..8];
+    private readonly string _messageId = "dlg-m-" + Guid.NewGuid().ToString("N")[..8];
+    private ElementReference _cancelButton;
+    private bool _wasOpen;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Open && !_wasOpen)
+        {
+            await _cancelButton.FocusAsync();
+        }
+
+        _wasOpen = Open;
+    }
+
+    private Task ConfirmAsync() => OnConfirm.InvokeAsync();
+
+    private Task CancelAsync() => OnCancel.InvokeAsync();
+
+    private Task OnKeyDownAsync(KeyboardEventArgs e) => e.Key == "Escape" ? CancelAsync() : Task.CompletedTask;
+}

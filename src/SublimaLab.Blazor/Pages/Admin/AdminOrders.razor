@@ -1,0 +1,112 @@
+@page "/admin/orders"
+@implements IDisposable
+@inject ApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Orders — SublimaLab admin</PageTitle>
+
+<h1>Orders</h1>
+
+<div class="toolbar">
+    <div class="field">
+        <label class="field__label" for="order-search">Search</label>
+        <input id="order-search" class="input" type="search" placeholder="Order number, name or email" value="@Search" @oninput="OnSearch" />
+    </div>
+    <div class="field">
+        <label class="field__label" for="order-status">Status</label>
+        <select id="order-status" class="select" value="@(Status ?? string.Empty)" @onchange="OnStatus">
+            <option value="">All statuses</option>
+            @foreach (var status in Enum.GetValues<OrderStatus>())
+            {
+                <option value="@status">@Format.Status(status)</option>
+            }
+        </select>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert--error" role="alert"><Icon Name="alert" /><p>@_error</p></div>
+}
+else if (_result is null)
+{
+    <div class="skeleton skeleton--block" aria-busy="true"></div>
+}
+else if (_result.Items.Count == 0)
+{
+    <div class="empty-state"><Icon Name="package" Class="empty-state__icon" /><h2>No orders found</h2><p>Try another status or search.</p></div>
+}
+else
+{
+    <p class="results-meta" role="status">@_result.TotalCount @(_result.TotalCount == 1 ? "order" : "orders")</p>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th scope="col">Order</th>
+                    <th scope="col">Placed</th>
+                    <th scope="col">Customer</th>
+                    <th scope="col" class="num">Items</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="num">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var order in _result.Items)
+                {
+                    <tr>
+                        <td><a href="admin/orders/@order.Id">@order.OrderNumber</a> @if (order.HasCustomization) { <span class="badge badge--brand">Custom</span> }</td>
+                        <td>@Format.DateAndTime(order.PlacedAt)</td>
+                        <td>@order.CustomerName<br /><span class="text-muted">@order.CustomerEmail</span></td>
+                        <td class="num">@order.ItemCount</td>
+                        <td><span class="badge badge--@Format.StatusTone(order.Status)">@Format.Status(order.Status)</span></td>
+                        <td class="num">@Format.Money(order.Total, order.Currency)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <Pager Page="_result.Page" TotalPages="_result.TotalPages" />
+}
+
+@code {
+    [SupplyParameterFromQuery] public string? Status { get; set; }
+    [SupplyParameterFromQuery(Name = "q")] public string? Search { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public int? PageNumber { get; set; }
+
+    private PagedResult<AdminOrderSummary>? _result;
+    private string? _error;
+    private CancellationTokenSource? _debounce;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _error = null;
+        try
+        {
+            var query = $"page={Math.Max(PageNumber ?? 1, 1)}&pageSize=20";
+            if (Enum.TryParse<OrderStatus>(Status, out var status)) query += $"&status={status}";
+            if (!string.IsNullOrWhiteSpace(Search)) query += $"&search={Uri.EscapeDataString(Search)}";
+            _result = await Api.GetAsync<PagedResult<AdminOrderSummary>>($"api/admin/orders?{query}");
+        }
+        catch (Exception e) when (e is ApiException or HttpRequestException)
+        {
+            _error = "We couldn't load orders. Please refresh to try again.";
+        }
+    }
+
+    private void OnStatus(ChangeEventArgs e) =>
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(new Dictionary<string, object?> { ["status"] = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value, ["page"] = null }), replace: true);
+
+    private void OnSearch(ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString();
+        _debounce?.Cancel();
+        _debounce = new CancellationTokenSource();
+        var token = _debounce.Token;
+        _ = Task.Delay(350, token).ContinueWith(
+            _ => InvokeAsync(() => Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(new Dictionary<string, object?> { ["q"] = string.IsNullOrWhiteSpace(text) ? null : text, ["page"] = null }), replace: true)),
+            token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+    }
+
+    public void Dispose() => _debounce?.Cancel();
+}

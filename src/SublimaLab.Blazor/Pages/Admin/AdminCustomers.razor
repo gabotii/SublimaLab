@@ -1,0 +1,77 @@
+@page "/admin/customers"
+@inject ApiClient Api
+@inject ToastService Toasts
+
+<PageTitle>Customers — SublimaLab admin</PageTitle>
+
+<h1>Customers</h1>
+
+<div class="toolbar">
+    <div class="field">
+        <label class="field__label" for="customer-search">Search</label>
+        <input id="customer-search" class="input" type="search" placeholder="Name or email" @bind="_search" @bind:event="oninput" @bind:after="LoadAsync" />
+    </div>
+</div>
+
+@if (_result is null)
+{
+    <div class="skeleton skeleton--block" aria-busy="true"></div>
+}
+else if (_result.Items.Count == 0)
+{
+    <div class="empty-state"><Icon Name="user" Class="empty-state__icon" /><h2>No customers found</h2></div>
+}
+else
+{
+    <p class="results-meta" role="status">@_result.TotalCount @(_result.TotalCount == 1 ? "account" : "accounts")</p>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th scope="col">Customer</th>
+                    <th scope="col">Joined</th>
+                    <th scope="col" class="num">Orders</th>
+                    <th scope="col" class="num">Spent</th>
+                    <th scope="col">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var customer in _result.Items)
+                {
+                    <tr>
+                        <td><a href="admin/customers/@customer.Id">@(string.IsNullOrWhiteSpace(customer.FullName) ? customer.Email : customer.FullName)</a><br /><span class="text-muted">@customer.Email</span></td>
+                        <td>@Format.Date(customer.CreatedAt)</td>
+                        <td class="num">@customer.OrderCount</td>
+                        <td class="num">@Format.Money(customer.TotalSpent)</td>
+                        <td>
+                            @if (customer.IsAdmin) { <span class="badge badge--info">Admin</span> }
+                            @if (customer.IsLockedOut) { <span class="badge badge--danger">Locked</span> }
+                            else if (!customer.EmailConfirmed) { <span class="badge badge--warning">Unconfirmed</span> }
+                            else { <span class="badge badge--success">Active</span> }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private PagedResult<AdminCustomerSummary>? _result;
+    private string? _search;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var query = "pageSize=50" + (string.IsNullOrWhiteSpace(_search) ? string.Empty : $"&search={Uri.EscapeDataString(_search)}");
+            _result = await Api.GetAsync<PagedResult<AdminCustomerSummary>>($"api/admin/customers?{query}");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+    }
+}

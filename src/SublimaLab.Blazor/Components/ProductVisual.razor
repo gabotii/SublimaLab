@@ -1,0 +1,19 @@
+@* Shows an administrator-uploaded product photo when there is one; otherwise the tintable illustration. *@
+@if (IsUploadedPhoto)
+{
+    <img class="product-photo @Class" src="@ImageUrl" alt="@(Label ?? string.Empty)" loading="lazy" />
+}
+else
+{
+    <ProductArt Kind="@Kind" Color="@Color" Label="@Label" Class="@Class" />
+}
+
+@code {
+    [Parameter] public string? ImageUrl { get; set; }
+    [Parameter] public string Kind { get; set; } = ArtKind.TShirt;
+    [Parameter] public string? Color { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    private bool IsUploadedPhoto => ImageUrl?.StartsWith("/api/product-images/", StringComparison.Ordinal) == true;
+}

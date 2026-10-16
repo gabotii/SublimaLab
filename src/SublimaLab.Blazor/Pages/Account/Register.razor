@@ -1,0 +1,116 @@
+@page "/account/register"
+@inject ApiClient Api
+
+<PageTitle>Create your account — SublimaLab</PageTitle>
+
+<div class="container auth">
+    <div class="card auth__card">
+        @if (_result is not null)
+        {
+            <div class="confirmation" style="margin-bottom:0">
+                <div class="confirmation__icon"><Icon Name="mail" /></div>
+                <h1>Check your inbox</h1>
+                <p>@_result.Message</p>
+                <p class="text-muted">We sent a link to <strong>@_result.Email</strong>. It's valid for 24 hours.</p>
+                <a class="btn btn--primary" href="@($"account/login{ReturnQuery}")">Go to sign in</a>
+            </div>
+        }
+        else
+        {
+            <h1>Create your account</h1>
+            <p class="text-muted">Save designs, check out faster and follow every order.</p>
+
+            <EditForm Model="_model" OnValidSubmit="SubmitAsync" FormName="register" class="form-grid">
+                <DataAnnotationsValidator />
+                <ServerErrors Error="_error" HandledFields="HandledFields" />
+
+                <div class="form-grid form-grid--2">
+                    <div class="field">
+                        <label class="field__label" for="reg-first">First name</label>
+                        <InputText id="reg-first" class="input" autocomplete="given-name" @bind-Value="_model.FirstName" />
+                        <ValidationMessage For="() => _model.FirstName" />
+                        <FieldError Error="_error" Field="firstName" />
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="reg-last">Last name</label>
+                        <InputText id="reg-last" class="input" autocomplete="family-name" @bind-Value="_model.LastName" />
+                        <ValidationMessage For="() => _model.LastName" />
+                        <FieldError Error="_error" Field="lastName" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="field__label" for="reg-email">Email</label>
+                    <InputText id="reg-email" class="input" type="email" autocomplete="email" @bind-Value="_model.Email" />
+                    <ValidationMessage For="() => _model.Email" />
+                    <FieldError Error="_error" Field="email" />
+                </div>
+                <div class="field">
+                    <label class="field__label" for="reg-password">Password</label>
+                    <InputText id="reg-password" class="input" type="password" autocomplete="new-password" aria-describedby="password-hint" @bind-Value="_model.Password" />
+                    <span id="password-hint" class="field__hint">At least 10 characters, with an uppercase letter, a lowercase letter and a number.</span>
+                    <ValidationMessage For="() => _model.Password" />
+                    <FieldError Error="_error" Field="password" />
+                </div>
+                <button type="submit" class="btn btn--primary btn--lg btn--block" disabled="@_submitting">
+                    @if (_submitting)
+                    {
+                        <span class="btn__spinner" aria-hidden="true"></span>
+                    }
+                    Create account
+                </button>
+            </EditForm>
+
+            <p class="auth__footer">Already have an account? <a href="@($"account/login{ReturnQuery}")">Sign in</a></p>
+        }
+    </div>
+</div>
+
+@code {
+    private static readonly string[] HandledFields = ["firstName", "lastName", "email", "password"];
+
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private readonly RegisterModel _model = new();
+    private RegisterResponse? _result;
+    private ApiException? _error;
+    private bool _submitting;
+
+    private string ReturnQuery => string.IsNullOrEmpty(ReturnUrl) ? string.Empty : $"?returnUrl={Uri.EscapeDataString(ReturnUrl)}";
+
+    private async Task SubmitAsync()
+    {
+        _submitting = true;
+        _error = null;
+        try
+        {
+            _result = await Api.PostAsync<RegisterResponse>("api/auth/register",
+                new RegisterRequest(_model.Email.Trim(), _model.Password, _model.FirstName.Trim(), _model.LastName.Trim()));
+        }
+        catch (ApiException e)
+        {
+            _error = e;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private sealed class RegisterModel
+    {
+        [Required(ErrorMessage = "Enter your first name."), StringLength(60)]
+        public string FirstName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter your last name."), StringLength(60)]
+        public string LastName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter your email address.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email address.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Choose a password.")]
+        [MinLength(10, ErrorMessage = "Use at least 10 characters.")]
+        [RegularExpression("^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).+$", ErrorMessage = "Include an uppercase letter, a lowercase letter and a number.")]
+        public string Password { get; set; } = string.Empty;
+    }
+}

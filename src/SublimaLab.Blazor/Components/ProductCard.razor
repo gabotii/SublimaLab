@@ -1,0 +1,91 @@
+@inject CartState CartState
+@inject ApiClient Api
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+
+<article class="card product-card" aria-labelledby="@TitleId">
+    <div class="product-card__media">
+        <ProductVisual ImageUrl="@Product.ImageUrl" Kind="@ArtKind.FromProductSlug(Product.Slug)" Color="@(Product.Colors.FirstOrDefault()?.Hex)" />
+        <div class="product-card__badges">
+            @if (Product.IsCustomizable)
+            {
+                <span class="badge badge--brand">Customizable</span>
+            }
+            @if (Product.IsFeatured)
+            {
+                <span class="badge">Bestseller</span>
+            }
+        </div>
+    </div>
+    <div class="product-card__body">
+        <span class="product-card__category">@Product.CategoryName</span>
+        <h3 class="product-card__title" id="@TitleId"><a href="products/@Product.Slug">@Product.Name</a></h3>
+        @if (Product.Colors.Count > 1)
+        {
+            <ul class="swatches" aria-label="@Product.Colors.Count colors available">
+                @foreach (var color in Product.Colors.Take(8))
+                {
+                    <li style="background:@color.Hex" title="@color.Name"></li>
+                }
+            </ul>
+        }
+        <p class="product-card__price">
+            @if (_hasOptions)
+            {
+                <small>From </small>
+            }
+            @Format.Money(Product.Price, Product.Currency)
+        </p>
+        <div class="product-card__actions">
+            @if (Product.IsCustomizable)
+            {
+                <a class="btn btn--primary btn--sm" href="customize/@Product.Slug" aria-label="Customize: @Product.Name">Customize</a>
+            }
+            <button type="button" class="btn btn--secondary btn--sm" @onclick="AddToCartAsync" disabled="@_adding" aria-label="Add to cart: @Product.Name">
+                @if (_adding)
+                {
+                    <span class="btn__spinner" aria-hidden="true"></span>
+                }
+                Add to cart
+            </button>
+        </div>
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public ProductSummary Product { get; set; } = default!;
+
+    private bool _adding;
+    private bool _hasOptions;
+
+    private string TitleId => $"product-{Product.Id:N}";
+
+    protected override void OnParametersSet() => _hasOptions = Product.Colors.Count > 1;
+
+    /// <summary>Adds directly when there is a single option; otherwise lets the customer choose.</summary>
+    private async Task AddToCartAsync()
+    {
+        _adding = true;
+        try
+        {
+            var detail = await Api.GetAsync<ProductDetail>($"api/products/{Product.Slug}");
+            if (detail.Variants.Count != 1)
+            {
+                Navigation.NavigateTo($"products/{Product.Slug}");
+                Toasts.Info($"Choose a color and size for {Product.Name}.");
+                return;
+            }
+
+            await CartState.AddAsync(detail.Id, detail.Variants[0].Id, 1);
+            Toasts.Success($"{Product.Name} added to your cart.", "View cart", "cart");
+        }
+        catch (ApiException e)
+        {
+            Toasts.Error(e.Message);
+        }
+        finally
+        {
+            _adding = false;
+        }
+    }
+}
